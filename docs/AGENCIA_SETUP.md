@@ -1,52 +1,68 @@
 # ASI Agent — Guía de Configuración para Agencias
 
-> **Versión:** 1.0 | **Idioma:** Español | **Sistema Operativo:** Linux + Windows
+> **Versión:** 1.1 (Modelo SQLite Replica Read-Only) | **Idioma:** Español | **SO:** Linux + Windows
 
 ---
 
 ## 1. ¿Qué es el ASI Agent?
 
-El ASI Agent es el equivalente a un **Boomi Atom**, pero sin licencias, sin Java, y sin permisos de escritura en tu base de datos.
+El ASI Agent es el equivalente a un **Boomi Atom**, pero sin licencias, sin Java, y con **cero permisos de escritura** en tu base de datos.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    OGP CENTRAL                           │
-│                                                          │
-│  ┌──────────┐   ┌──────────────┐   ┌────────────────┐   │
-│  │ SQL Srv  │   │ Hub API      │   │ PR Integ Hub   │   │
-│  │ (master) │   │ :8900        │   │ (ETL)          │   │
-│  └────┬─────┘   └──────┬───────┘   └───────┬────────┘   │
-│       │                │                   │             │
-│       │    ┌───────────┴──────────┐        │             │
-│       │    │  API read-only       │        │             │
-│       │    │  GET /api/data/{key} │        │             │
-│       │    └───────────┬──────────┘        │             │
-└───────┼────────────────┼───────────────────┼─────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                         OGP CENTRAL                              │
+│                                                                  │
+│  ┌──────────┐   ┌──────────────┐   ┌────────────────┐           │
+│  │ SQL Srv  │   │ Hub API      │   │ PR Integ Hub   │           │
+│  │ (master) │   │ :8900        │   │ (ETL)          │           │
+│  └────┬─────┘   └──────┬───────┘   └───────┬────────┘           │
+│       │                │                   │                     │
+│       │    ┌───────────┴──────────┐        │                     │
+│       │    │  POST generate-replicas│      │                     │
+│       │    │  (cron diario)        │      │                     │
+│       │    │                       │      │                     │
+│       │    │  Genera SQLite por    │      │                     │
+│       │    │  agencia (filtrado)   │      │                     │
+│       │    └───────────┬──────────┘        │                     │
+└───────┼────────────────┼───────────────────┼─────────────────────┘
         │                │                   │
-        ▼                ▼                   │
-┌───────────────────────────────────────────┼─────────────┐
-│              TU AGENCIA                    │             │
-│                                            │             │
-│  ┌──────────────────────────────────────┐ │             │
-│  │  ASI Agent (8 MB ejecutable)         │ │             │
-│  │                                      │ │             │
-│  │  🔄 Cada 60s:                        │ │             │
-│  │  • ¿Nuevo release de mi app? → Instala│ │             │
-│  │  • ¿Hub está vivo? → Heartbeat       │ │             │
-│  │  • NUNCA escribe en tu DB            │ │             │
-│  └──────────────────────────────────────┘ │             │
-│                                            │             │
-│  ┌──────────────────────────────────────┐ │             │
-│  │  TU APLICACIÓN (Sistema de RH, etc.) │ │             │
-│  │                                      │ │             │
-│  │  🔍 Lee datos del Hub:               │ │             │
-│  │  • SELECT * FROM empleados (read-only)│ │             │
-│  │  • GET /api/data (REST API)          │ │             │
-│  └──────────────────────────────────────┘ │             │
-└────────────────────────────────────────────┘             │
+        │                ▼                   │
+        │     ┌──────────────────┐           │
+        │     │  empleados.db    │           │
+        │     │  (SHA-256)       │           │
+        │     │  solo tu agencia │           │
+        │     └────────┬─────────┘           │
+        │              │                     │
+        ▼              ▼                     │
+┌───────────────────────────────────────────┼─────────────────────┐
+│              TU AGENCIA                    │                     │
+│                                            │                     │
+│  ┌──────────────────────────────────────┐ │                     │
+│  │  ASI Agent (8 MB ejecutable)         │ │                     │
+│  │                                      │ │                     │
+│  │  🔄 Cada 60s:                        │ │                     │
+│  │  • ¿Nuevo release de mi app? → Instala│ │                     │
+│  │  • ¿Nueva réplica de datos?          │ │                     │
+│  │    → Download SQLite                 │ │                     │
+│  │    → Verify SHA-256                  │ │                     │
+│  │    → chmod 444 (read-only)           │ │                     │
+│  │    → /opt/asi-agent/data/empleados.db│ │                     │
+│  └──────────────────────────────────────┘ │                     │
+│                                            │                     │
+│  ┌──────────────────────────────────────┐ │                     │
+│  │  TU APLICACIÓN (Sistema de RH)       │ │                     │
+│  │                                      │ │                     │
+│  │  🔍 Lee SQLite local (read-only):    │ │                     │
+│  │  conn = sqlite3.connect("file:...?mode=ro")  │               │
+│  │  cursor.execute("SELECT * FROM empleados")   │               │
+│  │                                      │ │                     │
+│  │  Funciona aunque el Hub esté caído   │ │                     │
+│  └──────────────────────────────────────┘ │                     │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**El Agent solo despliega software. NO escribe en tu base de datos.**
+**El Agent recibe un archivo SQLite diario con los datos de TU agencia.**
+Tu aplicación lo lee. El archivo tiene permisos `r--r--r--` — imposible escribir.
 
 ---
 
@@ -156,104 +172,132 @@ nssm status ASIAgent
 
 ---
 
-## 5. Conectar tu Aplicación a los Datos (Read-Only)
+## 5. Conectar tu Aplicación al SQLite Local
 
-Tu aplicación necesita leer datos desde el SQL Server central de OGP. **Dos opciones:**
+Tu aplicación lee los datos desde un archivo SQLite local que el Agent actualiza diariamente.
+**El archivo está en modo read-only (chmod 444). Nadie puede escribir en él.**
 
-### Opción A — Connection String Directo (más rápido)
+### 5.1 Ubicación del archivo
 
-OGP te entrega un connection string con un usuario que solo tiene `GRANT SELECT`.
+```bash
+/opt/asi-agent/data/empleados.db     ← Read-only (r--r--r--)
+/opt/asi-agent/data/empleados.db-wal ← WAL journal (solo lectura)
+```
+
+### 5.2 Leer desde tu aplicación
 
 ```python
-# Ejemplo en Python
-import pyodbc
+# Python — SQLite read-only mode
+import sqlite3
 
-conn = pyodbc.connect(
-    "DRIVER={ODBC Driver 18 for SQL Server};"
-    "SERVER=hub.pr.gov,1433;"
-    "DATABASE=CentralDB;"
-    "UID=agencia_ogp;"
-    "PWD=tuPasswordSegura;"
-    "Encrypt=yes;"
-    "TrustServerCertificate=no;"
-)
-
+# URI mode con ?mode=ro = IMPOSIBLE escribir
+conn = sqlite3.connect("file:/opt/asi-agent/data/empleados.db?mode=ro", uri=True)
 cursor = conn.cursor()
-cursor.execute("SELECT * FROM empleados WHERE agencia='OGP'")
+
+# Tus datos, filtrados para tu agencia
+cursor.execute("SELECT * FROM empleados ORDER BY last_name")
 for row in cursor:
-    print(row)
+    print(row["first_name"], row["last_name"], row["position_title"])
+
+# Leer metadatos
+cursor.execute("SELECT * FROM _asi_meta")
+for key, val in cursor:
+    print(f"{key}: {val}")
+# agency_key: ogp
+# generated_at: 2026-06-22T02:00:00Z
+# total_rows: 1542
+# access: READ-ONLY — SELECT only. No INSERT/UPDATE/DELETE.
+
+conn.close()
 ```
 
 ```java
-// Ejemplo en Java (JDBC)
-String url = "jdbc:sqlserver://hub.pr.gov:1433;database=CentralDB;user=agencia_ogp;password=***;encrypt=true";
-Connection conn = DriverManager.getConnection(url);
+// Java — SQLite JDBC read-only
+import java.sql.*;
+
+Properties config = new Properties();
+config.setProperty("open_mode", "1");  // read-only
+Connection conn = DriverManager.getConnection(
+    "jdbc:sqlite:/opt/asi-agent/data/empleados.db", config
+);
 Statement stmt = conn.createStatement();
-ResultSet rs = stmt.executeQuery("SELECT * FROM empleados WHERE agencia='OGP'");
+ResultSet rs = stmt.executeQuery("SELECT * FROM empleados");
+while (rs.next()) {
+    System.out.println(rs.getString("first_name"));
+}
 ```
 
 ```csharp
-// Ejemplo en C# (.NET)
-using var conn = new SqlConnection(
-    "Server=hub.pr.gov,1433;Database=CentralDB;User Id=agencia_ogp;Password=***;Encrypt=True;"
+// C# — SQLite read-only
+using Microsoft.Data.Sqlite;
+
+var conn = new SqliteConnection(
+    "Data Source=/opt/asi-agent/data/empleados.db;Mode=ReadOnly"
 );
 conn.Open();
-using var cmd = new SqlCommand("SELECT * FROM empleados WHERE agencia='OGP'", conn);
+var cmd = new SqlCommand("SELECT * FROM empleados", conn);
 using var reader = cmd.ExecuteReader();
-```
-
-**Qué NO puedes hacer con este usuario:**
-```
-❌ INSERT INTO empleados ...
-❌ UPDATE empleados SET ...
-❌ DELETE FROM empleados ...
-❌ DROP TABLE ...
-❌ CREATE TABLE ...
-
-✅ SELECT * FROM empleados ...
-✅ SELECT COUNT(*) FROM empleados ...
-✅ JOIN entre tablas permitidas
-```
-
-### Opción B — REST API (más seguro, sin acceso directo a DB)
-
-OGP te entrega una API Key. Tu aplicación consume datos vía HTTP.
-
-```bash
-# Ejemplo con curl
-curl -H "Authorization: Bearer asi_live_abc123..." \
-     "https://hub.pr.gov/api/data/empleados?agencia=ogp"
-```
-
-```python
-# Ejemplo en Python
-import requests
-
-headers = {"Authorization": "Bearer asi_live_abc123..."}
-resp = requests.get(
-    "https://hub.pr.gov/api/data/empleados",
-    params={"agencia": "ogp"},
-    headers=headers,
-)
-data = resp.json()
-for emp in data["empleados"]:
-    print(emp["first_name"], emp["last_name"])
+while (reader.Read()) {
+    Console.WriteLine(reader["first_name"]);
+}
 ```
 
 ```javascript
-// Ejemplo en JavaScript (React, Node)
-const resp = await fetch(
-  "https://hub.pr.gov/api/data/empleados?agencia=ogp",
-  { headers: { Authorization: "Bearer asi_live_abc123..." } }
-);
-const data = await resp.json();
+// Node.js — better-sqlite3 read-only
+const Database = require('better-sqlite3');
+const db = new Database('/opt/asi-agent/data/empleados.db', {
+    readonly: true,
+    fileMustExist: true
+});
+const rows = db.prepare('SELECT * FROM empleados').all();
+console.log(rows);
 ```
 
-**Ventajas de la API:**
-- Tu aplicación nunca toca la base de datos
-- Rate limiting (100 req/min por agencia)
-- Logs de acceso por API key
-- Sin necesidad de instalar ODBC/JDBC drivers
+### 5.3 Intentar escribir → IMPOSIBLE
+
+```python
+# Esto tira EXCEPTION porque el archivo es chmod 444
+conn = sqlite3.connect("file:/opt/asi-agent/data/empleados.db?mode=ro", uri=True)
+conn.execute("INSERT INTO empleados VALUES (...)")
+# sqlite3.OperationalError: attempt to write a readonly database
+
+# Y aunque cambiaras el mode=rw:
+$ ls -la /opt/asi-agent/data/empleados.db
+# -r--r--r-- 1 root root 2.1M Jun 22 02:00 empleados.db
+# ↑ Solo lectura a nivel de sistema operativo
+```
+
+### 5.4 ¿Qué pasa si el Hub está caído?
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  TU APLICACIÓN                                           │
+│                                                          │
+│  conn = sqlite3.connect("file:.../empleados.db?mode=ro") │
+│  cursor.execute("SELECT * FROM empleados")               │
+│  → FUNCIONA PERFECTO                                     │
+│                                                          │
+│  La última réplica sigue en disco.                       │
+│  Tus empleados pueden seguir trabajando.                 │
+└──────────────────────────────────────────────────────────┘
+```
+
+### 5.5 Metadatos de la réplica
+
+Cada archivo SQLite incluye una tabla `_asi_meta`:
+
+```sql
+SELECT * FROM _asi_meta;
+```
+
+| key | value (ejemplo) |
+|---|---|
+| `agency_key` | `ogp` |
+| `pipeline_key` | `ukg_employee_import` |
+| `generated_at` | `2026-06-22T02:00:00Z` |
+| `total_rows` | `1542` |
+| `source` | `PR Integration Hub — SQL Server` |
+| `access` | `READ-ONLY — SELECT only. No INSERT/UPDATE/DELETE.` |
 
 ---
 
@@ -266,10 +310,10 @@ Después de configurar, verifica cada paso:
 | 1 | Agent instalado | `asi-agent-linux --help` | Muestra ayuda |
 | 2 | Agent conecta al Hub | `asi-agent-linux --agency-key ogp --hub-url https://hub.pr.gov --once` | "No pending deployments" |
 | 3 | Servicio corriendo | `systemctl status asi-agent-ogp` | `active (running)` |
-| 4 | Heartbeat en Hub | Pregunta a OGP | "Last heartbeat: hace 1 min" |
-| 5 | Conexión DB (SELECT) | `sqlcmd -S hub.pr.gov -U agencia_ogp -P *** -Q "SELECT 1"` | `1` |
-| 6 | Conexión DB (INSERT) | `sqlcmd -S hub.pr.gov -U agencia_ogp -P *** -Q "INSERT INTO test VALUES(1)"` | **ERROR** (permiso denegado) |
-| 7 | API responde | `curl -H "Authorization: Bearer KEY" https://hub.pr.gov/api/data/empleados?agencia=ogp` | JSON con empleados |
+| 4 | Réplica SQLite existe | `ls -la /opt/asi-agent/data/empleados.db` | `-r--r--r--` (read-only) |
+| 5 | SQLite legible | `sqlite3 /opt/asi-agent/data/empleados.db "SELECT COUNT(*) FROM empleados"` | Número > 0 |
+| 6 | SQLite NO escribible | `python3 -c "import sqlite3; sqlite3.connect('file:/opt/asi-agent/data/empleados.db?mode=ro',uri=True).execute('CREATE TABLE x(y)')"` | **ERROR** |
+| 7 | Metadatos correctos | `sqlite3 /opt/asi-agent/data/empleados.db "SELECT * FROM _asi_meta WHERE key='agency_key'"` | Tu agency key |
 
 ---
 
@@ -299,14 +343,23 @@ Después de configurar, verifica cada paso:
 │  sudo cp /tmp/asi-agent-ogp.service /etc/systemd/system/     │
 │  sudo systemctl enable --now asi-agent-ogp                  │
 │                                                              │
-│  PASO 3 — Conectar tu aplicación a los datos                 │
-│  Opción A: Connection string SELECT-only                    │
-│  Opción B: REST API con API key                             │
+│  PASO 3 — Esperar primera réplica (OGP la genera diario)    │
+│  ls -la /opt/asi-agent/data/empleados.db                    │
+│  → -r--r--r--  empleados.db                                 │
 │                                                              │
-│  PASO 4 — Verificar                                         │
+│  PASO 4 — Leer desde tu aplicación                           │
+│  conn = sqlite3.connect("file:.../empleados.db?mode=ro",...) │
+│  cursor.execute("SELECT * FROM empleados")                  │
+│                                                              │
+│  PASO 5 — Verificar                                         │
 │  systemctl status asi-agent-ogp → active (running)          │
-│  SELECT * FROM empleados → datos                            │
-│  INSERT INTO empleados → PERMISSION DENIED ✓                │
+│  sqlite3 empleados.db "SELECT COUNT(*) FROM empleados" → >0 │
+│  Intentar INSERT → PERMISSION DENIED ✓                      │
+│                                                              │
+│  ✅ Cero dependencias externas                               │
+│  ✅ Funciona sin internet                                    │
+│  ✅ Imposible escribir datos                                 │
+│  ✅ $0 por agencia                                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 

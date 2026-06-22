@@ -162,6 +162,36 @@ class ASIAgent:
 
     # ─── Deployment Processing ─────────────────────────────────
     def _process_deployment(self, deploy: dict):
+        """Route deployment to software or data handler based on type."""
+        deploy_type = deploy.get("deploy_type", "SOFTWARE")
+
+        if deploy_type == "DATA":
+            self._process_data_replica(deploy)
+        else:
+            self._process_software(deploy)
+
+    def _process_data_replica(self, deploy: dict):
+        """Handle DATA type deployment: download SQLite, verify, install read-only."""
+        try:
+            from data_replica import DataReplica
+            replica = DataReplica(self.agency_key, self.hub_url)
+            result = replica.process_data_release(deploy)
+
+            self._report_result(
+                deploy["deployment_id"],
+                result["status"],
+                error=result.get("error"),
+                log_output=result.get("log"),
+            )
+        except ImportError:
+            error_msg = "data_replica module not available"
+            logger.error(error_msg)
+            self._report_result(deploy["deployment_id"], "FAILED", error=error_msg)
+        except Exception as e:
+            logger.exception("Data replica failed: %s", e)
+            self._report_result(deploy["deployment_id"], "FAILED", error=str(e))
+
+    def _process_software(self, deploy: dict):
         """Download, verify, backup, install, report."""
         deployment_id = deploy["deployment_id"]
         release_tag = deploy["release_tag"]

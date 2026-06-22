@@ -3,7 +3,10 @@
 # ============================================================
 import hashlib
 import json
+import logging
 import os
+import shutil
+import tempfile
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +27,8 @@ DB_CONN = os.getenv(
 )
 ARTIFACT_STORE = Path(os.getenv("ASI_ARTIFACT_STORE", "/opt/data/asi-artifacts"))
 ARTIFACT_STORE.mkdir(parents=True, exist_ok=True)
+
+logger = logging.getLogger("asi-hub")
 
 app = FastAPI(title="ASI Deploy Hub", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -298,20 +303,30 @@ def agent_pending_deployments(agency_key: str):
     conn = pyodbc.connect(DB_CONN)
     cur = conn.cursor()
     cur.execute(
-        "SELECT d.id as deployment_id, d.deployment_tag, r.release_tag, r.artifact_path, "
-        "r.artifact_hash, r.artifact_size, r.deploy_script, a.display_name as app_name, "
+        "SELECT d.id as deployment_id, d.deploy_type, d.release_tag, r.artifact_path, "
+        "r.artifact_hash, r.artifact_size, r.deploy_script, "
+        "COALESCE(a.display_name, 'Data Replica') as app_name, "
         "da.id as assignment_id "
         "FROM dbo.deployment_agencies da "
         "JOIN dbo.deployments d ON da.deployment_id = d.id "
         "JOIN dbo.releases r ON d.release_id = r.id "
-        "JOIN dbo.applications a ON r.app_id = a.id "
+        "LEFT JOIN dbo.applications a ON r.app_id = a.id "
         "JOIN dbo.agencies ag ON da.agency_id = ag.id "
-        "WHERE ag.agency_key=? AND da.status='PENDING' AND r.status='PUBLISHED' "
+        "WHERE ag.agency_key=? AND da.status='PENDING' "
         "ORDER BY d.created_at",
         agency_key,
     )
     cols = [c[0] for c in cur.description]
     pending = [dict(zip(cols, r)) for r in cur.fetchall()]
+
+    # For DATA deployments, extract pipeline_key from release_tag (data_{pipeline}_{ts})
+    for d in pending:
+        if d.get("deploy_type") == "DATA":
+            tag = d.get("release_tag", "")
+            parts = tag.split("_")
+            if len(parts) >= 2:
+                d["pipeline_key"] = parts[1]
+
     conn.close()
     return {"agency_key": agency_key, "pending_count": len(pending), "deployments": pending}
 
@@ -606,6 +621,185 @@ def agent_report_sync(
     )
 
     return {"status": "ok", "agency_key": agency_key, "pipeline_key": pipeline_key, "batch_id": batch_id}
+
+
+# ─── Data Replica Generation ──────────────────────────────────
+class ReplicaRequest(BaseModel):
+    pipeline_key: str = "ukg_employee_import"
+    agency_keys: Optional[list[str]] = None  # None = all agencies
+
+@app.post("/api/admin/generate-replicas")
+def generate_replicas(req: ReplicaRequest):
+    """Generate SQLite replicas for agencies. Called via cron daily.
+    
+    For each agency, queries SQL Server for their filtered data,
+    writes a SQLite file, stores as artifact, creates DATA deployment.
+    """
+    conn = pyodbc.connect(DB_CONN, autocommit=True)
+    cur = conn.cursor()
+
+    # Get agencies
+    if req.agency_keys:
+        placeholders = ",".join(["?"] * len(req.agency_keys))
+        cur.execute(f"SELECT id, agency_key, display_name FROM dbo.agencies WHERE agency_key IN ({placeholders})", *req.agency_keys)
+    else:
+        cur.execute("SELECT id, agency_key, display_name FROM dbo.agencies WHERE status='ACTIVE'")
+    agencies = cur.fetchall()
+
+    # Get pipeline
+    cur.execute("SELECT id, pipeline_key, target_table FROM dbo.integration_pipelines WHERE pipeline_key=?", req.pipeline_key)
+    pipe = cur.fetchone()
+    if not pipe:
+        conn.close()
+        raise HTTPException(404, f"Pipeline not found: {req.pipeline_key}")
+    pipeline_id, pipeline_key, target_table = pipe
+
+    results = []
+    for agency_id, agency_key, display_name in agencies:
+        try:
+            replica_path = _build_sqlite_replica(cur, agency_key, target_table, pipeline_key)
+            artifact_hash = _sha256_file(replica_path)
+            artifact_size = os.path.getsize(replica_path)
+
+            # Store artifact
+            artifact_path = f"replicas/{agency_key}/{pipeline_key}.db"
+            dest = ARTIFACT_STORE / artifact_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(replica_path, dest)
+
+            # Create release for this data replica
+            ts = datetime.utcnow()
+            release_tag = f"data_{pipeline_key}_{ts.strftime('%Y%m%d_%H%M%S')}"
+
+            cur.execute(
+                "INSERT INTO dbo.releases (app_key, release_tag, artifact_path, artifact_hash, artifact_size, release_notes) "
+                "OUTPUT INSERTED.id VALUES ('data_replica', ?, ?, ?, ?, ?)",
+                release_tag, artifact_path, artifact_hash, artifact_size,
+                f"Data replica for {agency_key} — {pipeline_key}",
+            )
+            release_id = cur.fetchone()[0]
+
+            # Create deployment for this agency
+            cur.execute(
+                "INSERT INTO dbo.deployments (release_id, app_key, release_tag, deploy_type, status, created_at) "
+                "VALUES (?, 'data_replica', ?, 'DATA', 'PENDING', SYSUTCDATETIME())",
+                release_id, release_tag,
+            )
+
+            # Assign deployment to agency
+            cur.execute(
+                "INSERT INTO dbo.deployment_agencies (deployment_id, agency_id, status, created_at) "
+                "VALUES ((SELECT MAX(id) FROM dbo.deployments), ?, 'PENDING', SYSUTCDATETIME())",
+                agency_id,
+            )
+
+            # Cleanup temp file
+            os.unlink(replica_path)
+
+            results.append({
+                "agency_key": agency_key,
+                "status": "OK",
+                "rows": _count_rows(replica_path) if os.path.exists(replica_path) else 0,
+                "artifact_hash": artifact_hash,
+                "size_kb": artifact_size // 1024,
+            })
+            logger.info("Replica OK: %s — %d KB, SHA-256: %s...", agency_key, artifact_size // 1024, artifact_hash[:16])
+
+        except Exception as e:
+            logger.exception("Replica FAILED for %s: %s", agency_key, e)
+            results.append({"agency_key": agency_key, "status": "FAILED", "error": str(e)})
+
+    conn.close()
+    return {"pipeline_key": pipeline_key, "agencies_processed": len(agencies), "results": results}
+
+
+def _build_sqlite_replica(cur, agency_key: str, table: str, pipeline_key: str) -> str:
+    """Query SQL Server for agency's data and export to SQLite file."""
+    import sqlite3
+
+    # Query data filtered by agency
+    agency_col = _agency_column(pipeline_key)
+    query = f"SELECT * FROM dbo.{table} WHERE {agency_col}=?"
+    cur.execute(query, agency_key)
+    rows = cur.fetchall()
+    col_names = [c[0] for c in cur.description]
+
+    # Write to temp SQLite
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+    tmp_path = tmp.name
+    tmp.close()
+
+    sql_conn = sqlite3.connect(tmp_path)
+    sql_conn.execute(f"PRAGMA journal_mode=WAL")
+    sql_conn.execute(f"PRAGMA application_id = 0x41534901")  # 'ASI\x01' magic
+
+    # Create table
+    col_defs = ", ".join([f"[{c}] TEXT" for c in col_names])
+    sql_conn.execute(f"CREATE TABLE [{table}] ({col_defs})")
+
+    # Insert data in batches
+    placeholders = ", ".join(["?"] * len(col_names))
+    col_list = ", ".join([f"[{c}]" for c in col_names])
+    batch_size = 1000
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i:i + batch_size]
+        sql_conn.executemany(
+            f"INSERT INTO [{table}] ({col_list}) VALUES ({placeholders})", batch
+        )
+
+    # Create index on agency column
+    sql_conn.execute(f"CREATE INDEX idx_agency ON [{table}]([{agency_col}])")
+
+    # Add metadata table
+    sql_conn.execute(
+        "CREATE TABLE _asi_meta (key TEXT PRIMARY KEY, value TEXT)"
+    )
+    sql_conn.executemany(
+        "INSERT INTO _asi_meta VALUES (?, ?)",
+        [
+            ("agency_key", agency_key),
+            ("pipeline_key", pipeline_key),
+            ("generated_at", datetime.utcnow().isoformat() + "Z"),
+            ("total_rows", str(len(rows))),
+            ("source", "PR Integration Hub — SQL Server"),
+            ("access", "READ-ONLY — SELECT only. No INSERT/UPDATE/DELETE."),
+        ],
+    )
+
+    sql_conn.commit()
+    sql_conn.close()
+
+    return tmp_path
+
+
+def _agency_column(pipeline_key: str) -> str:
+    """Map pipeline to agency filter column."""
+    mapping = {
+        "ukg_employee_import": "agency",
+        "sap_payroll_import": "agency",
+        "oracle_fin_import": "agency_code",
+    }
+    return mapping.get(pipeline_key, "agency")
+
+
+def _sha256_file(filepath: str) -> str:
+    """Compute SHA-256 hash of a file."""
+    hasher = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _count_rows(filepath: str) -> int:
+    """Count rows in SQLite file."""
+    import sqlite3
+    conn = sqlite3.connect(f"file:{filepath}?mode=ro", uri=True)
+    cur = conn.cursor()
+    cur.execute("SELECT value FROM _asi_meta WHERE key='total_rows'")
+    row = cur.fetchone()
+    conn.close()
+    return int(row[0]) if row else 0
 
 
 # ─── Static (React admin portal) ──────────────────────────────
