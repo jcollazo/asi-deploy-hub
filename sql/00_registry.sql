@@ -125,3 +125,23 @@ CREATE INDEX IX_heartbeats_agency ON dbo.agent_heartbeats(agency_id, created_at 
 GO
 
 PRINT '✅ ASI Deploy Hub — Registry schema created';
+GO
+
+-- ─── Sync State (per agency, per pipeline — tracks last sync) ─
+IF OBJECT_ID('dbo.sync_state', 'U') IS NULL
+CREATE TABLE dbo.sync_state (
+    id              BIGINT IDENTITY(1,1) PRIMARY KEY,
+    agency_id       INT NOT NULL REFERENCES dbo.agencies(id),
+    pipeline_id     INT NOT NULL REFERENCES dbo.integration_pipelines(id),
+    last_sync_at    DATETIME2,
+    last_batch_id   UNIQUEIDENTIFIER,
+    rows_synced     BIGINT DEFAULT 0,
+    status          NVARCHAR(20) DEFAULT 'NEVER',  -- 'NEVER', 'SYNCING', 'SYNCED', 'FAILED'
+    error_message   NVARCHAR(MAX),
+    updated_at      DATETIME2 DEFAULT SYSUTCDATETIME(),
+
+    CONSTRAINT UQ_sync_agency_pipeline UNIQUE (agency_id, pipeline_id)
+);
+GO
+
+PRINT '✅ Sync state table created';

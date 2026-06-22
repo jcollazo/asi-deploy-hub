@@ -466,6 +466,148 @@ def agency_dashboard(agency_key: str):
     }
 
 
+# ─── Data Sync API (Agent pulls data for agency's local DB) ────
+@app.get("/api/agent/data/{agency_key}")
+def agent_pull_data(
+    agency_key: str,
+    pipeline_key: str = Query(..., description="Pipeline to sync (e.g., 'ukg_employee_import')"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(1000, ge=1, le=10000),
+):
+    """Agent pulls paginated data from central DB for sync to agency's local DB.
+
+    Returns rows from the most recent COMPLETED batch that this agency hasn't synced yet.
+    """
+    conn = pyodbc.connect(DB_CONN)
+    cur = conn.cursor()
+
+    # Resolve agency
+    cur.execute("SELECT id FROM dbo.agencies WHERE agency_key=?", agency_key)
+    ag = cur.fetchone()
+    if not ag:
+        raise HTTPException(404, f"Agency not found: {agency_key}")
+    agency_id = ag[0]
+
+    # Resolve pipeline
+    cur.execute("SELECT id FROM dbo.integration_pipelines WHERE pipeline_key=?", pipeline_key)
+    pipe = cur.fetchone()
+    if not pipe:
+        raise HTTPException(404, f"Pipeline not found: {pipeline_key}")
+    pipeline_id = pipe[0]
+
+    # Get last sync state
+    cur.execute(
+        "SELECT last_batch_id, last_sync_at FROM dbo.sync_state "
+        "WHERE agency_id=? AND pipeline_id=?", agency_id, pipeline_id
+    )
+    sync = cur.fetchone()
+    last_batch_id = sync[0] if sync else None
+
+    # Find the latest COMPLETED batch
+    cur.execute(
+        "SELECT TOP 1 batch_id, total_rows FROM dbo.import_log "
+        "WHERE pipeline_id=? AND status='COMPLETED' "
+        "ORDER BY completed_at DESC", pipeline_id
+    )
+    latest = cur.fetchone()
+    if not latest:
+        return {"agency_key": agency_key, "pipeline_key": pipeline_key, "status": "NO_DATA", "rows": []}
+
+    latest_batch_id = str(latest[0])
+
+    # If this agency already synced the latest batch, nothing new
+    if last_batch_id and str(last_batch_id) == latest_batch_id:
+        return {
+            "agency_key": agency_key,
+            "pipeline_key": pipeline_key,
+            "status": "UP_TO_DATE",
+            "batch_id": latest_batch_id,
+            "rows": [],
+            "total_rows": latest[1],
+        }
+
+    # Get staging table for this pipeline
+    cur.execute(
+        "SELECT table_name FROM dbo.staging_registry WHERE pipeline_id=? AND is_active=1", pipeline_id
+    )
+    staging = cur.fetchone()
+    staging_table = staging[0] if staging else "dbo.import_staging"
+
+    # Get field mappings (source → target column names)
+    cur.execute(
+        "SELECT source_field, target_column, transform FROM dbo.field_mappings "
+        "WHERE pipeline_id=? ORDER BY id", pipeline_id
+    )
+    mappings = [(m[0], m[1], m[2]) for m in cur.fetchall()]
+    target_cols = [m[1] for m in mappings]
+
+    # Pull paginated rows
+    col_list = ", ".join(target_cols)
+    cur.execute(
+        f"SELECT {col_list} FROM {staging_table} "
+        f"WHERE batch_id=? "
+        f"ORDER BY id "
+        f"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY",
+        latest_batch_id,
+    )
+    col_names = [c[0] for c in cur.description]
+    rows = [dict(zip(col_names, r)) for r in cur.fetchall()]
+
+    conn.close()
+
+    return {
+        "agency_key": agency_key,
+        "pipeline_key": pipeline_key,
+        "status": "DATA_AVAILABLE",
+        "batch_id": latest_batch_id,
+        "total_rows": latest[1],
+        "offset": offset,
+        "limit": limit,
+        "rows": rows,
+        "columns": col_names,
+        "has_more": len(rows) == limit,
+    }
+
+
+@app.post("/api/agent/data/{agency_key}/synced")
+def agent_report_sync(
+    agency_key: str,
+    pipeline_key: str = Query(...),
+    batch_id: str = Query(...),
+    rows_synced: int = Query(0),
+    status: str = Query("SYNCED"),
+):
+    """Agent reports that a batch has been synced to the agency's local DB."""
+    conn = pyodbc.connect(DB_CONN, autocommit=True)
+    cur = conn.cursor()
+
+    cur.execute("SELECT id FROM dbo.agencies WHERE agency_key=?", agency_key)
+    ag = cur.fetchone()
+    if not ag:
+        raise HTTPException(404, f"Agency not found: {agency_key}")
+    agency_id = ag[0]
+
+    cur.execute("SELECT id FROM dbo.integration_pipelines WHERE pipeline_key=?", pipeline_key)
+    pipe = cur.fetchone()
+    if not pipe:
+        raise HTTPException(404, f"Pipeline not found: {pipeline_key}")
+    pipeline_id = pipe[0]
+
+    cur.execute(
+        "MERGE INTO dbo.sync_state AS target "
+        "USING (SELECT ? AS agency_id, ? AS pipeline_id) AS source "
+        "ON target.agency_id = source.agency_id AND target.pipeline_id = source.pipeline_id "
+        "WHEN MATCHED THEN UPDATE SET last_batch_id=?, last_sync_at=SYSUTCDATETIME(), "
+        "  rows_synced=rows_synced+?, status=?, error_message=NULL, updated_at=SYSUTCDATETIME() "
+        "WHEN NOT MATCHED THEN INSERT (agency_id, pipeline_id, last_batch_id, last_sync_at, rows_synced, status) "
+        "  VALUES (source.agency_id, source.pipeline_id, ?, SYSUTCDATETIME(), ?, ?);",
+        agency_id, pipeline_id, batch_id, rows_synced, status,
+        batch_id, rows_synced, status,
+    )
+
+    return {"status": "ok", "agency_key": agency_key, "pipeline_key": pipeline_key, "batch_id": batch_id}
+
+
 # ─── Static (React admin portal) ──────────────────────────────
 frontend = Path(__file__).parent.parent / "frontend" / "dist"
 if frontend.exists():

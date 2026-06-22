@@ -76,6 +76,28 @@ https://hub.pr.gov/agency/tu-key
 ```
 Ejemplos: `/agency/ogp`, `/agency/hacienda`, `/agency/justicia`
 
+### Sincronizar datos a la DB local de la agencia
+
+Si la agencia necesita los datos en su propia base de datos:
+
+```bash
+# 1. La agencia crea un usuario en su DB
+#    (SQL Server, Oracle, o PostgreSQL)
+CREATE USER asi_sync WITH PASSWORD='***';
+GRANT INSERT, UPDATE ON empleados TO asi_sync;
+
+# 2. Ejecutar el Agent con --db-conn
+./asi-agent-linux \
+  --agency-key ogp \
+  --hub-url https://hub.pr.gov \
+  --db-conn "DRIVER={ODBC Driver 18 for SQL Server};SERVER=10.0.1.50;DATABASE=HR;UID=asi_sync;PWD=***"
+
+# El Agent ahora:
+# → Cada 60s: revisa si hay software nuevo → despliega
+# → Cada 60s: revisa si hay datos nuevos → sincroniza a DB local
+# → Cero intervención humana
+```
+
 ---
 
 ## 🚀 Quick Start (OGP Admin)

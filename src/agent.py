@@ -46,10 +46,11 @@ logger = logging.getLogger("asi-agent")
 
 # ─── Main Agent Loop ──────────────────────────────────────────
 class ASIAgent:
-    def __init__(self, agency_key: str, hub_url: str, poll_interval: int = DEFAULT_POLL_INTERVAL):
+    def __init__(self, agency_key: str, hub_url: str, poll_interval: int = DEFAULT_POLL_INTERVAL, db_conn_str: str = None):
         self.agency_key = agency_key
         self.hub_url = hub_url.rstrip("/")
         self.poll_interval = poll_interval
+        self.db_conn_str = db_conn_str
         self.os_info = f"{platform.system()} {platform.release()} {platform.version()}"
         self.python_version = platform.python_version()
 
@@ -62,12 +63,15 @@ class ASIAgent:
 
         while True:
             try:
+                # ─── Software Deployments ──────────────────────────
                 pending = self._check_pending()
                 if pending:
                     for deploy in pending:
                         self._process_deployment(deploy)
-                else:
-                    logger.debug("No pending deployments.")
+
+                # ─── Data Sync ──────────────────────────────────────
+                if self.db_conn_str:
+                    self._sync_data()
 
                 self._send_heartbeat()
             except requests.RequestException as e:
@@ -110,6 +114,20 @@ class ASIAgent:
             logger.debug("Heartbeat sent. Status: %s", resp.status_code)
         except Exception as e:
             logger.warning("Heartbeat failed: %s", e)
+
+    def _sync_data(self):
+        """Sync data from central Hub to agency's local DB."""
+        try:
+            from data_sync import DataSyncer
+            syncer = DataSyncer(self.agency_key, self.hub_url, self.db_conn_str)
+            results = syncer.run_once()
+            for r in results:
+                if r.get("rows_synced", 0) > 0:
+                    logger.info("Data synced: %s → %d rows", r["pipeline"], r["rows_synced"])
+        except ImportError:
+            logger.debug("data_sync module not available (pyodbc not installed)")
+        except Exception as e:
+            logger.error("Data sync failed: %s", e)
 
     def _report_result(self, deployment_id: int, status: str, error: str = None, log_output: str = None):
         """Report deployment result to hub."""
@@ -385,6 +403,7 @@ def main():
                         help=f"Seconds between polls (default: {DEFAULT_POLL_INTERVAL})")
     parser.add_argument("--once", action="store_true", help="Check once and exit (don't loop)")
     parser.add_argument("--install-service", action="store_true", help="Install as system service (systemd on Linux, NSSM on Windows)")
+    parser.add_argument("--db-conn", help="Local DB connection string for data sync (e.g., 'DRIVER={ODBC};SERVER=10.0.1.50;...')")
     args = parser.parse_args()
 
     # Handle --install-service
@@ -392,7 +411,7 @@ def main():
         install_service(args)
         return
 
-    agent = ASIAgent(args.agency_key, args.hub_url, args.poll_interval)
+    agent = ASIAgent(args.agency_key, args.hub_url, args.poll_interval, args.db_conn)
 
     if args.once:
         pending = agent._check_pending()
