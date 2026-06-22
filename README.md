@@ -37,7 +37,48 @@
 
 ---
 
-## 🚀 Quick Start
+## 🏛️ Para Agencias — Descargar y Ejecutar (1 minuto)
+
+### Linux
+
+```bash
+# 1. Descargar el ejecutable (no necesita Python ni nada)
+wget https://github.com/jcollazo/asi-deploy-hub/releases/latest/download/asi-agent-linux
+chmod +x asi-agent-linux
+
+# 2. Ejecutar (reemplaza 'ogp' con tu key)
+./asi-agent-linux --agency-key ogp --hub-url https://hub.pr.gov
+
+# 3. (Opcional) Instalar como servicio para que corra siempre
+sudo ./asi-agent-linux --agency-key ogp --hub-url https://hub.pr.gov --install-service
+```
+
+### Windows
+
+```powershell
+# 1. Descargar el ejecutable
+Invoke-WebRequest -Uri "https://github.com/jcollazo/asi-deploy-hub/releases/latest/download/asi-agent-windows.exe" -OutFile "asi-agent.exe"
+
+# 2. Ejecutar (doble click o desde terminal)
+.\asi-agent.exe --agency-key hacienda --hub-url https://hub.pr.gov
+
+# 3. (Opcional) Instalar como servicio Windows
+.\asi-agent.exe --agency-key hacienda --hub-url https://hub.pr.gov --install-service
+```
+
+> ⚡ **Cero dependencias.** El ejecutable incluye Python, requests, y todo lo necesario. ~8 MB.
+
+### Ver tu portal
+
+Después de que el Agent esté corriendo, visita:
+```
+https://hub.pr.gov/agency/tu-key
+```
+Ejemplos: `/agency/ogp`, `/agency/hacienda`, `/agency/justicia`
+
+---
+
+## 🚀 Quick Start (OGP Admin)
 
 ### 1. Hub Server (Central)
 

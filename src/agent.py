@@ -322,6 +322,60 @@ class ASIAgent:
         return apps
 
 
+# ─── Service Installation ──────────────────────────────────────
+def install_service(args):
+    """Install agent as a system service (systemd on Linux, NSSM hint on Windows)."""
+    if platform.system() == "Windows":
+        print("=" * 60)
+        print("  ASI Agent — Windows Service Installation")
+        print("=" * 60)
+        print()
+        print("  Para instalar como servicio en Windows, usa NSSM:")
+        print()
+        print(f"  nssm install ASIAgent C:\\Python312\\python.exe")
+        print(f'  nssm set ASIAgent AppParameters "--agency-key {args.agency_key} --hub-url {args.hub_url}"')
+        print(f"  nssm start ASIAgent")
+        print()
+        print("  Descarga NSSM: https://nssm.cc/download")
+        print("=" * 60)
+        return
+
+    # Linux — systemd
+    import getpass
+    service_content = f"""[Unit]
+Description=ASI Deploy Agent ({args.agency_key})
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={sys.executable} {os.path.abspath(__file__)} --agency-key {args.agency_key} --hub-url {args.hub_url} --poll-interval {args.poll_interval}
+Restart=always
+RestartSec=30
+User={getpass.getuser()}
+
+[Install]
+WantedBy=multi-user.target
+"""
+    service_path = f"/tmp/asi-agent-{args.agency_key}.service"
+    with open(service_path, "w") as f:
+        f.write(service_content)
+
+    print("=" * 60)
+    print(f"  ASI Agent — Linux Service (systemd)")
+    print("=" * 60)
+    print(f"  Agency: {args.agency_key}")
+    print(f"  Hub:    {args.hub_url}")
+    print()
+    print("  Para instalar el servicio, ejecuta como root:")
+    print()
+    print(f"  sudo cp {service_path} /etc/systemd/system/")
+    print(f"  sudo systemctl daemon-reload")
+    print(f"  sudo systemctl enable --now asi-agent-{args.agency_key}")
+    print()
+    print(f"  Servicio guardado en: {service_path}")
+    print("=" * 60)
+
+
 # ─── CLI ──────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="ASI Deploy Hub — Cross-Platform Agent")
@@ -330,7 +384,13 @@ def main():
     parser.add_argument("--poll-interval", type=int, default=DEFAULT_POLL_INTERVAL,
                         help=f"Seconds between polls (default: {DEFAULT_POLL_INTERVAL})")
     parser.add_argument("--once", action="store_true", help="Check once and exit (don't loop)")
+    parser.add_argument("--install-service", action="store_true", help="Install as system service (systemd on Linux, NSSM on Windows)")
     args = parser.parse_args()
+
+    # Handle --install-service
+    if args.install_service:
+        install_service(args)
+        return
 
     agent = ASIAgent(args.agency_key, args.hub_url, args.poll_interval)
 

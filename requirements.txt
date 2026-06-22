@@ -3,3 +3,4 @@ fastapi>=0.110
 uvicorn>=0.29
 requests>=2.31
 psutil>=5.9  # Optional — for system metrics
+pyinstaller>=6.0  # For building standalone executables
