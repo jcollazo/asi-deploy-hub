@@ -416,6 +416,56 @@ def _audit_event(cursor, deployment_id: int, event_type: str, detail: str):
     )
 
 
+# ─── Agency Portal API (read-only, filtered by agency_key) ─────
+@app.get("/api/agency/{agency_key}/dashboard")
+def agency_dashboard(agency_key: str):
+    """Read-only dashboard for a specific agency."""
+    conn = pyodbc.connect(DB_CONN)
+    cur = conn.cursor()
+
+    # Agency info
+    cur.execute(
+        "SELECT id, agency_key, display_name, hostname, os_type, agent_version, last_seen_at, is_active "
+        "FROM dbo.agencies WHERE agency_key=?", agency_key
+    )
+    ag_cols = [c[0] for c in cur.description]
+    ag_row = cur.fetchone()
+    if not ag_row:
+        raise HTTPException(404, f"Agency not found: {agency_key}")
+    agency = dict(zip(ag_cols, ag_row))
+
+    # Recent deployments for this agency
+    cur.execute(
+        "SELECT TOP 10 d.deployment_tag, r.release_tag, a.display_name as app_name, "
+        "da.status, da.error_message, da.completed_at "
+        "FROM dbo.deployment_agencies da "
+        "JOIN dbo.deployments d ON da.deployment_id = d.id "
+        "JOIN dbo.releases r ON d.release_id = r.id "
+        "JOIN dbo.applications a ON r.app_id = a.id "
+        "WHERE da.agency_id=? "
+        "ORDER BY da.id DESC", agency["id"]
+    )
+    dep_cols = [c[0] for c in cur.description]
+    deployments = [dict(zip(dep_cols, r)) for r in cur.fetchall()]
+
+    # Latest heartbeat (system health)
+    cur.execute(
+        "SELECT TOP 1 cpu_pct, mem_pct, disk_pct, os_info, agent_version, installed_apps, created_at "
+        "FROM dbo.agent_heartbeats WHERE agency_id=? ORDER BY id DESC", agency["id"]
+    )
+    hb_cols = [c[0] for c in cur.description]
+    hb_row = cur.fetchone()
+    heartbeat = dict(zip(hb_cols, hb_row)) if hb_row else None
+
+    conn.close()
+
+    return {
+        "agency": agency,
+        "deployments": deployments,
+        "heartbeat": heartbeat,
+    }
+
+
 # ─── Static (React admin portal) ──────────────────────────────
 frontend = Path(__file__).parent.parent / "frontend" / "dist"
 if frontend.exists():
