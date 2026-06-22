@@ -1,0 +1,5 @@
+pyodbc>=5.0
+fastapi>=0.110
+uvicorn>=0.29
+requests>=2.31
+psutil>=5.9  # Optional — for system metrics
