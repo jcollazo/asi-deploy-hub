@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* PRITS Palette */
+:root {
+  --sidebar: #12223A;
+  --bg: #F8F9FB;
+  --text: #212529;
+  --muted: #6C757D;
+  --border: #DEE2E6;
+  --primary: #0D6EFD;
+  --nav-active: #1C2854;
+  --nav-inactive: #AEC1E1;
+  --gold: #E5BD44;
+  --gov-navy: #16335C;
+  --success: #198754;
+  --danger: #DC3545;
+  --warning: #FFC107;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
