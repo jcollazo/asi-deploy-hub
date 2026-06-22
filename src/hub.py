@@ -657,7 +657,16 @@ def generate_replicas(req: ReplicaRequest):
     results = []
     for agency_id, agency_key, display_name in agencies:
         try:
-            replica_path = _build_sqlite_replica(cur, agency_key, target_table, pipeline_key)
+            # Get agency's selected columns
+            cur.execute(
+                "SELECT selected_columns FROM dbo.agencies WHERE id=?", agency_id
+            )
+            cols_row = cur.fetchone()
+            selected_cols = None
+            if cols_row and cols_row[0]:
+                selected_cols = [c.strip() for c in cols_row[0].split(",") if c.strip()]
+
+            replica_path = _build_sqlite_replica(cur, agency_key, target_table, pipeline_key, selected_cols)
             artifact_hash = _sha256_file(replica_path)
             artifact_size = os.path.getsize(replica_path)
 
@@ -713,16 +722,32 @@ def generate_replicas(req: ReplicaRequest):
     return {"pipeline_key": pipeline_key, "agencies_processed": len(agencies), "results": results}
 
 
-def _build_sqlite_replica(cur, agency_key: str, table: str, pipeline_key: str) -> str:
-    """Query SQL Server for agency's data and export to SQLite file."""
+def _build_sqlite_replica(cur, agency_key: str, table: str, pipeline_key: str, selected_cols: list[str] | None = None) -> str:
+    """Query SQL Server for agency's data, filter columns if selected, export to SQLite file."""
     import sqlite3
 
     # Query data filtered by agency
     agency_col = _agency_column(pipeline_key)
-    query = f"SELECT * FROM dbo.{table} WHERE {agency_col}=?"
+
+    # Get all columns from SQL Server first
+    cur.execute(f"SELECT TOP 0 * FROM dbo.{table}")
+    all_col_names = [c[0] for c in cur.description]
+
+    # Determine which columns to include
+    if selected_cols:
+        # Only include selected columns (case-insensitive match)
+        selected_lower = {c.lower() for c in selected_cols}
+        # Always include agency column and eeid
+        selected_lower.add(agency_col.lower())
+        selected_lower.add("eeid")
+        col_names = [c for c in all_col_names if c.lower() in selected_lower]
+    else:
+        col_names = all_col_names
+
+    col_str = ", ".join([f"[{c}]" for c in col_names])
+    query = f"SELECT {col_str} FROM dbo.{table} WHERE {agency_col}=?"
     cur.execute(query, agency_key)
     rows = cur.fetchall()
-    col_names = [c[0] for c in cur.description]
 
     # Write to temp SQLite
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
@@ -761,6 +786,9 @@ def _build_sqlite_replica(cur, agency_key: str, table: str, pipeline_key: str) -
             ("pipeline_key", pipeline_key),
             ("generated_at", datetime.utcnow().isoformat() + "Z"),
             ("total_rows", str(len(rows))),
+            ("columns", ",".join(col_names)),
+            ("columns_count", str(len(col_names))),
+            ("filtered", "yes" if selected_cols else "no"),
             ("source", "PR Integration Hub — SQL Server"),
             ("access", "READ-ONLY — SELECT only. No INSERT/UPDATE/DELETE."),
         ],
@@ -800,6 +828,123 @@ def _count_rows(filepath: str) -> int:
     row = cur.fetchone()
     conn.close()
     return int(row[0]) if row else 0
+
+
+# ─── Column Selection (per agency) ─────────────────────────────
+class ColumnSelectionRequest(BaseModel):
+    columns: list[str]  # ['eeid', 'first_name', 'last_name'] | [] = ALL
+
+@app.get("/api/admin/pipelines/{pipeline_key}/columns")
+def get_available_columns(pipeline_key: str):
+    """Get available columns for a pipeline (from field_mappings)."""
+    conn = pyodbc.connect(DB_CONN)
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT id FROM dbo.integration_pipelines WHERE pipeline_key=?",
+        pipeline_key,
+    )
+    pipe = cur.fetchone()
+    if not pipe:
+        conn.close()
+        raise HTTPException(404, f"Pipeline not found: {pipeline_key}")
+
+    cur.execute(
+        "SELECT source_field, target_column, data_type, is_required "
+        "FROM dbo.field_mappings WHERE pipeline_id=? ORDER BY id",
+        pipe[0],
+    )
+    columns = [
+        {
+            "source_field": r[0],
+            "target_column": r[1],
+            "data_type": r[2],
+            "is_required": bool(r[3]),
+        }
+        for r in cur.fetchall()
+    ]
+    conn.close()
+
+    return {
+        "pipeline_key": pipeline_key,
+        "total_columns": len(columns),
+        "columns": columns,
+    }
+
+
+@app.get("/api/agent/{agency_key}/config")
+def agent_get_config(agency_key: str):
+    """Agent fetches its configuration (selected columns, pipelines, etc.)."""
+    conn = pyodbc.connect(DB_CONN)
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT agency_key, display_name, selected_columns, os_type, hostname "
+        "FROM dbo.agencies WHERE agency_key=? AND is_active=1",
+        agency_key,
+    )
+    ag = cur.fetchone()
+    conn.close()
+
+    if not ag:
+        raise HTTPException(404, f"Agency not found: {agency_key}")
+
+    selected = ag[2]
+    columns = [c.strip() for c in selected.split(",") if c.strip()] if selected else None
+
+    return {
+        "agency_key": ag[0],
+        "display_name": ag[1],
+        "selected_columns": columns,  # null = ALL, [] = ALL, ['eeid','last_name'] = filtered
+        "os_type": ag[3],
+        "hostname": ag[4],
+    }
+
+
+@app.put("/api/admin/agencies/{agency_key}/columns")
+def set_agency_columns(agency_key: str, req: ColumnSelectionRequest):
+    """Configure which columns an agency receives in its data replica.
+    
+    Pass [] or null to receive ALL columns.
+    Pass ['eeid', 'first_name', 'last_name'] to receive only those.
+    """
+    conn = pyodbc.connect(DB_CONN, autocommit=True)
+    cur = conn.cursor()
+
+    cur.execute("SELECT id, display_name FROM dbo.agencies WHERE agency_key=?", agency_key)
+    ag = cur.fetchone()
+    if not ag:
+        conn.close()
+        raise HTTPException(404, f"Agency not found: {agency_key}")
+
+    # Validate columns exist
+    valid = set()
+    cur.execute(
+        "SELECT target_column FROM dbo.field_mappings m "
+        "JOIN dbo.integration_pipelines p ON m.pipeline_id = p.id "
+        "WHERE p.pipeline_key='ukg_employee_import'"
+    )
+    for r in cur.fetchall():
+        valid.add(r[0].lower())
+
+    for col in req.columns:
+        if col.lower() not in valid:
+            conn.close()
+            raise HTTPException(400, f"Unknown column: {col}. Available: {sorted(valid)}")
+
+    selected_str = ",".join(req.columns) if req.columns else None
+
+    cur.execute(
+        "UPDATE dbo.agencies SET selected_columns=?, updated_at=SYSUTCDATETIME() WHERE agency_key=?",
+        selected_str, agency_key,
+    )
+
+    conn.close()
+    return {
+        "agency_key": agency_key,
+        "selected_columns": req.columns if req.columns else "ALL",
+        "status": "updated",
+    }
 
 
 # ─── Static (React admin portal) ──────────────────────────────

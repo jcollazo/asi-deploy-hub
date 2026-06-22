@@ -15,10 +15,16 @@ CREATE TABLE dbo.agencies (
     agent_version   NVARCHAR(20),                   -- currently installed agent version
     last_seen_at    DATETIME2,
     is_active       BIT DEFAULT 1,
+    selected_columns NVARCHAR(MAX),                 -- Comma-separated: 'eeid,first_name,last_name' | NULL=ALL
     metadata_json   NVARCHAR(MAX),                  -- JSON: tags, contact, notes
     created_at      DATETIME2 DEFAULT SYSUTCDATETIME(),
     updated_at      DATETIME2 DEFAULT SYSUTCDATETIME()
 );
+GO
+
+-- Migration: add selected_columns if table already exists
+IF COL_LENGTH('dbo.agencies', 'selected_columns') IS NULL
+    ALTER TABLE dbo.agencies ADD selected_columns NVARCHAR(MAX);
 GO
 
 -- ─── Applications (software projects to deploy) ─────────────
