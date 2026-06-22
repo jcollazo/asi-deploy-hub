@@ -58,8 +58,14 @@ class ASIAgent:
         """Main loop — poll forever."""
         logger.info("ASI Agent v%s starting for agency '%s'", AGENT_VERSION, self.agency_key)
         logger.info("  OS: %s | Python: %s | Hub: %s", self.os_info, self.python_version, self.hub_url)
+        if self.db_conn_str:
+            logger.info("  DB: Connection string configured (read-only verify on startup)")
 
         self._send_heartbeat()
+
+        # Verify DB connection (read-only) on startup if configured
+        if self.db_conn_str:
+            self._verify_db_readonly()
 
         while True:
             try:
@@ -69,10 +75,6 @@ class ASIAgent:
                     for deploy in pending:
                         self._process_deployment(deploy)
 
-                # ─── Data Sync ──────────────────────────────────────
-                if self.db_conn_str:
-                    self._sync_data()
-
                 self._send_heartbeat()
             except requests.RequestException as e:
                 logger.error("Network error contacting hub: %s", e)
@@ -80,6 +82,34 @@ class ASIAgent:
                 logger.exception("Unexpected error in agent loop: %s", e)
 
             time.sleep(self.poll_interval)
+
+    def _verify_db_readonly(self):
+        """Verify DB connection is valid and read-only (SELECT only, no write)."""
+        if not self.db_conn_str:
+            return
+        logger.info("Verifying DB connection (read-only)...")
+        try:
+            import pyodbc
+            conn = pyodbc.connect(self.db_conn_str, timeout=10, autocommit=True)
+            cursor = conn.cursor()
+
+            # Test SELECT
+            cursor.execute("SELECT 1 AS test")
+            row = cursor.fetchone()
+            logger.info("  DB SELECT OK: %s", row[0])
+
+            # Test that INSERT is denied
+            try:
+                cursor.execute("INSERT INTO __asi_readonly_test__ VALUES (1)")
+                logger.warning("  ⚠ INSERT allowed! DB user has write permissions — this should NOT happen!")
+            except pyodbc.Error as e:
+                logger.info("  INSERT denied ✓ (read-only confirmed: %s)", str(e).split(".")[0])
+
+            conn.close()
+        except ImportError:
+            logger.warning("  pyodbc not installed — skipping DB verification")
+        except Exception as e:
+            logger.error("  DB connection FAILED: %s", e)
 
     # ─── Hub Communication ─────────────────────────────────────
     def _check_pending(self) -> list[dict]:
@@ -114,20 +144,6 @@ class ASIAgent:
             logger.debug("Heartbeat sent. Status: %s", resp.status_code)
         except Exception as e:
             logger.warning("Heartbeat failed: %s", e)
-
-    def _sync_data(self):
-        """Sync data from central Hub to agency's local DB."""
-        try:
-            from data_sync import DataSyncer
-            syncer = DataSyncer(self.agency_key, self.hub_url, self.db_conn_str)
-            results = syncer.run_once()
-            for r in results:
-                if r.get("rows_synced", 0) > 0:
-                    logger.info("Data synced: %s → %d rows", r["pipeline"], r["rows_synced"])
-        except ImportError:
-            logger.debug("data_sync module not available (pyodbc not installed)")
-        except Exception as e:
-            logger.error("Data sync failed: %s", e)
 
     def _report_result(self, deployment_id: int, status: str, error: str = None, log_output: str = None):
         """Report deployment result to hub."""
@@ -360,13 +376,14 @@ def install_service(args):
 
     # Linux — systemd
     import getpass
+    db_conn_part = f" --db-conn '{args.db_conn}'" if hasattr(args, 'db_conn') and args.db_conn else ""
     service_content = f"""[Unit]
 Description=ASI Deploy Agent ({args.agency_key})
 After=network.target
 
 [Service]
 Type=simple
-ExecStart={sys.executable} {os.path.abspath(__file__)} --agency-key {args.agency_key} --hub-url {args.hub_url} --poll-interval {args.poll_interval}
+ExecStart={sys.executable} {os.path.abspath(__file__)} --agency-key {args.agency_key} --hub-url {args.hub_url} --poll-interval {args.poll_interval}{db_conn_part}
 Restart=always
 RestartSec=30
 User={getpass.getuser()}
@@ -403,12 +420,22 @@ def main():
                         help=f"Seconds between polls (default: {DEFAULT_POLL_INTERVAL})")
     parser.add_argument("--once", action="store_true", help="Check once and exit (don't loop)")
     parser.add_argument("--install-service", action="store_true", help="Install as system service (systemd on Linux, NSSM on Windows)")
-    parser.add_argument("--db-conn", help="Local DB connection string for data sync (e.g., 'DRIVER={ODBC};SERVER=10.0.1.50;...')")
+    parser.add_argument("--db-conn", help="DB connection string for read-only verification on startup (e.g., 'DRIVER={ODBC};SERVER=10.0.1.50;...')")
+    parser.add_argument("--verify-db", action="store_true", help="Test DB connection (SELECT 1) and confirm INSERT is denied, then exit")
     args = parser.parse_args()
 
     # Handle --install-service
     if args.install_service:
         install_service(args)
+        return
+
+    # Handle --verify-db
+    if args.verify_db:
+        if not args.db_conn:
+            print("ERROR: --db-conn is required with --verify-db")
+            sys.exit(1)
+        agent = ASIAgent(args.agency_key, args.hub_url, args.poll_interval, args.db_conn)
+        agent._verify_db_readonly()
         return
 
     agent = ASIAgent(args.agency_key, args.hub_url, args.poll_interval, args.db_conn)
