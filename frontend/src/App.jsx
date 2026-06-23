@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Agencies from './pages/Agencies';
 import Apps from './pages/Apps';
@@ -41,13 +42,33 @@ const NAV = [
 
 function App() {
   const [route, navigate] = useRoute();
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('asi_user'));
+    } catch { return null; }
+  });
 
-  // Agency Portal — completely different layout
+  const handleLogin = (userData) => {
+    setUser(userData);
+    sessionStorage.setItem('asi_user', JSON.stringify(userData));
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    sessionStorage.removeItem('asi_user');
+  };
+
+  // Agency Portal — public, no login needed
   if (route.page === 'agency') {
     return <AgencyPortal agencyKey={route.key} />;
   }
 
-  // Admin Portal — sidebar layout
+  // Login screen — Boomi-inspired
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
+
+  // Admin Portal — sidebar layout (authenticated)
   return (
     <div className="flex h-screen">
       <aside className="w-56 flex-shrink-0 flex flex-col" style={{ background: 'var(--sidebar)' }}>
@@ -56,7 +77,7 @@ function App() {
             ASI Deploy Hub
           </h1>
           <p className="text-xs mt-0.5" style={{ color: 'var(--nav-inactive)' }}>
-            v1.0 · Admin
+            v1.1 · Admin
           </p>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
@@ -75,8 +96,20 @@ function App() {
             </button>
           ))}
         </nav>
-        <div className="p-3 border-t text-xs" style={{ borderColor: 'var(--nav-active)', color: 'var(--muted)' }}>
-          Puerto Rico 🇵🇷
+        <div className="p-3 border-t space-y-2" style={{ borderColor: 'var(--nav-active)' }}>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>
+            👤 {user?.username || 'Admin'}
+          </div>
+          <button
+            onClick={handleLogout}
+            className="text-xs underline"
+            style={{ color: 'var(--nav-inactive)' }}
+          >
+            Cerrar sesión
+          </button>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>
+            Puerto Rico 🇵🇷
+          </div>
         </div>
       </aside>
 
