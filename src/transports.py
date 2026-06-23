@@ -126,7 +126,12 @@ class SAPTransport:
         logger.info("SAP: Token obtained")
 
     def fetch_employees(self) -> list[dict]:
-        """Fetch employees from SAP SuccessFactors EmpEmployment."""
+        """Fetch employees from SAP SuccessFactors EmpEmployment.
+
+        No $select hardcoded — the API response defines the columns.
+        The Agent discovers columns dynamically from whatever the
+        agency's API endpoint returns.
+        """
         import requests
 
         self.authenticate()
@@ -147,13 +152,6 @@ class SAPTransport:
                 params={
                     "$top": top,
                     "$skip": skip,
-                    "$select": (
-                        "userId,firstName,lastName,middleName,"
-                        "jobCode,jobTitle,department,division,"
-                        "location,hireDate,terminationDate,status,"
-                        "email,businessPhone,managerName,"
-                        "payRate,payType,flsaStatus,nationalId"
-                    ),
                     "$format": "json",
                 },
                 timeout=120,
@@ -204,7 +202,12 @@ class OracleTransport:
         logger.info("Oracle: Token obtained")
 
     def fetch_employees(self) -> list[dict]:
-        """Fetch workers from Oracle HCM."""
+        """Fetch workers from Oracle HCM.
+
+        No hardcoded expand — the API response defines the columns.
+        The Agent discovers columns dynamically from whatever the
+        agency's Oracle HCM endpoint returns.
+        """
         import requests
 
         self.authenticate()
@@ -224,7 +227,6 @@ class OracleTransport:
                 params={
                     "limit": limit,
                     "offset": offset,
-                    "expand": "assignments,names,emails,phones,managers,salary",
                     "q": "AssignmentStatus='ACTIVE'",
                 },
                 timeout=120,
