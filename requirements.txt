@@ -4,3 +4,4 @@ uvicorn>=0.29
 requests>=2.31
 psutil>=5.9  # Optional — for system metrics
 pyinstaller>=6.0  # For building standalone executables
+python-multipart>=0.0.9  # Required by FastAPI for file uploads (UploadFile)
