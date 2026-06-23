@@ -998,4 +998,6 @@ if frontend.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8900)
+    # Azure Web Apps asigna PORT dinámico (8000 por defecto); local usa 8900
+    port = int(os.getenv("PORT", "8900"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
