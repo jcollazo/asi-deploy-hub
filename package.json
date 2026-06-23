@@ -1,0 +1,26 @@
+{
+  "name": "asi-deploy-hub",
+  "version": "1.0.0",
+  "description": "**Sistema de despliegue remoto para gobierno. Push updates a múltiples agencias. Linux + Windows. SHA-256 audit chain. Rollback automático.**",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jcollazo/asi-deploy-hub.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jcollazo/asi-deploy-hub/issues"
+  },
+  "homepage": "https://github.com/jcollazo/asi-deploy-hub#readme",
+  "dependencies": {
+    "pptxgenjs": "^4.0.1"
+  }
+}

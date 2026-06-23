@@ -183,10 +183,10 @@ graph LR
         E5["POST /heartbeat"]
     end
 
-    subgraph DB[("SQL Server")]
-        AG[("agencies<br/>source_type, creds,<br/>selected_columns")]
-        REL[("releases")]
-        DEP[("deployments")]
+    subgraph DB[SQL Server]
+        AG[(agencies)]
+        REL[(releases)]
+        DEP[(deployments)]
     end
 
     LOGIN --> DASH
