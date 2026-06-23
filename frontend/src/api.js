@@ -14,6 +14,14 @@ export const api = {
   getAgencies: () => request('/agencies'),
   createAgency: (data) => request('/agencies', { method: 'POST', body: JSON.stringify(data) }),
 
+  // Agency Source Configuration
+  configureSource: (agencyKey, data) => 
+    request(`/admin/agencies/${agencyKey}/source`, { method: 'PUT', body: JSON.stringify(data) }),
+  setAgencyColumns: (agencyKey, data) =>
+    request(`/admin/agencies/${agencyKey}/columns`, { method: 'PUT', body: JSON.stringify(data) }),
+  getAvailableColumns: (pipelineKey = 'ukg_employee_import') =>
+    request(`/admin/pipelines/${pipelineKey}/columns`),
+
   // Apps
   getApps: () => request('/apps'),
   createApp: (data) => request('/apps', { method: 'POST', body: JSON.stringify(data) }),
