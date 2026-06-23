@@ -1,5 +1,5 @@
 # ============================================================
-# hub.py — ASI Deploy Hub: Central API Server
+# hub.py — FBIB Deploy Hub: Central API Server
 # ============================================================
 import hashlib
 import json
@@ -20,17 +20,17 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 DB_CONN = os.getenv(
-    "ASI_DEPLOY_DB",
+    "FBIB_DEPLOY_DB",
     "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost,1433;"
-    "DATABASE=ASIDeployHub;UID=sa;PWD=YourPassword;"
+    "DATABASE=FBIBDeployHub;UID=sa;PWD=YourPassword;"
     "Encrypt=no;TrustServerCertificate=yes;",
 )
-ARTIFACT_STORE = Path(os.getenv("ASI_ARTIFACT_STORE", "/opt/data/asi-artifacts"))
+ARTIFACT_STORE = Path(os.getenv("FBIB_ARTIFACT_STORE", "/opt/data/fbib-artifacts"))
 ARTIFACT_STORE.mkdir(parents=True, exist_ok=True)
 
-logger = logging.getLogger("asi-hub")
+logger = logging.getLogger("fbib-hub")
 
-app = FastAPI(title="ASI Deploy Hub", version="1.0.0")
+app = FastAPI(title="FBIB Deploy Hub", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -756,7 +756,7 @@ def _build_sqlite_replica(cur, agency_key: str, table: str, pipeline_key: str, s
 
     sql_conn = sqlite3.connect(tmp_path)
     sql_conn.execute(f"PRAGMA journal_mode=WAL")
-    sql_conn.execute(f"PRAGMA application_id = 0x41534901")  # 'ASI\x01' magic
+    sql_conn.execute(f"PRAGMA application_id = 0x41534901")  # 'FBIB\x01' magic
 
     # Create table
     col_defs = ", ".join([f"[{c}] TEXT" for c in col_names])
@@ -777,10 +777,10 @@ def _build_sqlite_replica(cur, agency_key: str, table: str, pipeline_key: str, s
 
     # Add metadata table
     sql_conn.execute(
-        "CREATE TABLE _asi_meta (key TEXT PRIMARY KEY, value TEXT)"
+        "CREATE TABLE _fbib_meta (key TEXT PRIMARY KEY, value TEXT)"
     )
     sql_conn.executemany(
-        "INSERT INTO _asi_meta VALUES (?, ?)",
+        "INSERT INTO _fbib_meta VALUES (?, ?)",
         [
             ("agency_key", agency_key),
             ("pipeline_key", pipeline_key),
@@ -824,7 +824,7 @@ def _count_rows(filepath: str) -> int:
     import sqlite3
     conn = sqlite3.connect(f"file:{filepath}?mode=ro", uri=True)
     cur = conn.cursor()
-    cur.execute("SELECT value FROM _asi_meta WHERE key='total_rows'")
+    cur.execute("SELECT value FROM _fbib_meta WHERE key='total_rows'")
     row = cur.fetchone()
     conn.close()
     return int(row[0]) if row else 0

@@ -30,19 +30,19 @@ export default function Login({ onLogin }) {
   return (
     <div style={styles.container}>
       <style>{`
-        .asi-login-input:focus {
+        .fbib-login-input:focus {
           border-color: #0D6EFD !important;
           box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.15) !important;
         }
-        .asi-login-input:hover {
+        .fbib-login-input:hover {
           border-color: #ADB5BD !important;
         }
-        .asi-login-btn:hover {
+        .fbib-login-btn:hover {
           background: #0B5ED7 !important;
           transform: translateY(-1px);
           box-shadow: 0 4px 12px rgba(13, 110, 253, 0.3);
         }
-        .asi-login-btn:active {
+        .fbib-login-btn:active {
           transform: translateY(0);
         }
       `}</style>
@@ -52,9 +52,10 @@ export default function Login({ onLogin }) {
         <div style={styles.brandContent}>
           <div style={styles.logoArea}>
             <div style={styles.logoIcon}>⬡</div>
-            <h1 style={styles.brandName}>ASI Deploy Hub</h1>
+            <h1 style={styles.brandName}>FBIB Deploy Hub</h1>
             <div style={styles.goldLine} />
-            <p style={styles.brandSub}>Gobierno de Puerto Rico</p>
+            <p style={styles.brandSub}>Oficina de Gerencia y Presupuesto</p>
+            <p style={styles.brandGov}>Gobierno de Puerto Rico</p>
           </div>
 
           <div style={styles.features}>
@@ -94,7 +95,7 @@ export default function Login({ onLogin }) {
                 value={username}
                 onChange={e => setUsername(e.target.value)}
                 placeholder="admin@ogp.pr.gov"
-                className="asi-login-input"
+                className="fbib-login-input"
                 style={styles.input}
                 autoFocus
               />
@@ -107,7 +108,7 @@ export default function Login({ onLogin }) {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="asi-login-input"
+                className="fbib-login-input"
                 style={styles.input}
               />
             </div>
@@ -121,7 +122,7 @@ export default function Login({ onLogin }) {
             <button
               type="submit"
               disabled={loading}
-              className={`asi-login-btn${loading ? ' asi-login-btn-loading' : ''}`}
+              className={`fbib-login-btn${loading ? ' fbib-login-btn-loading' : ''}`}
               style={{
                 ...styles.submitBtn,
               }}
@@ -210,10 +211,17 @@ const styles = {
 
   brandSub: {
     fontSize: '14px',
-    color: '#AEC1E1',
+    color: PRITS.gold,
     margin: 0,
+    fontWeight: '500',
+    letterSpacing: '0.3px',
+  },
+
+  brandGov: {
+    fontSize: '12px',
+    color: '#AEC1E1',
+    margin: '4px 0 0 0',
     fontWeight: '400',
-    letterSpacing: '0.5px',
   },
 
   features: {

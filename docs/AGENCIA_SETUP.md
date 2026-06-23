@@ -1,12 +1,12 @@
-# ASI Agent — Guía de Configuración para Agencias
+# FBIB Agent — Guía de Configuración para Agencias
 
 > **Versión:** 2.0 (Modelo Pull Directo — Agent jala de UKG/SAP/Oracle) | **Idioma:** Español | **SO:** Linux + Windows
 
 ---
 
-## 1. ¿Qué es el ASI Agent?
+## 1. ¿Qué es el FBIB Agent?
 
-El ASI Agent es el equivalente a un **Boomi Atom**, pero sin licencias, sin Java, y con **cero permisos de escritura** en tu base de datos. A diferencia de Boomi, el Agent **jala los datos directo de tu fuente** (UKG, SAP, u Oracle) — no depende de un ETL central.
+El FBIB Agent es el equivalente a un **Boomi Atom**, pero sin licencias, sin Java, y con **cero permisos de escritura** en tu base de datos. A diferencia de Boomi, el Agent **jala los datos directo de tu fuente** (UKG, SAP, u Oracle) — no depende de un ETL central.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -28,7 +28,7 @@ El ASI Agent es el equivalente a un **Boomi Atom**, pero sin licencias, sin Java
             │               │          TU AGENCIA                   │
             │               │                                      │
             │               │  ┌────────────────────────────────┐  │
-            │               │  │  ASI Agent (8 MB)              │  │
+            │               │  │  FBIB Agent (8 MB)              │  │
             │               │  │                                │  │
             │               │  │  🔄 Cada 60s:                  │  │
             │               │  │  1. GET /config → source, creds│  │
@@ -42,7 +42,7 @@ El ASI Agent es el equivalente a un **Boomi Atom**, pero sin licencias, sin Java
             │               │                  ▼                    │
             │               │  ┌────────────────────────────────┐  │
             │               │  │  empleados.db                  │  │
-            │               │  │  /opt/asi-agent/data/          │  │
+            │               │  │  /opt/fbib-agent/data/          │  │
             │               │  │  -r--r--r-- (read-only)        │  │
             │               │  └───────────────┬────────────────┘  │
             │               │                  │                    │
@@ -75,14 +75,14 @@ El ASI Agent es el equivalente a un **Boomi Atom**, pero sin licencias, sin Java
 
 ### Linux (x86_64)
 ```bash
-wget https://github.com/jcollazo/asi-deploy-hub/releases/latest/download/asi-agent-linux
-chmod +x asi-agent-linux
-sudo mv asi-agent-linux /usr/local/bin/
+wget https://github.com/jcollazo/fbib-deploy-hub/releases/latest/download/fbib-agent-linux
+chmod +x fbib-agent-linux
+sudo mv fbib-agent-linux /usr/local/bin/
 ```
 
 ### Windows (x86_64)
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/jcollazo/asi-deploy-hub/releases/latest/download/asi-agent-windows.exe" -OutFile "C:\ProgramData\ASIAgent\asi-agent.exe"
+Invoke-WebRequest -Uri "https://github.com/jcollazo/fbib-deploy-hub/releases/latest/download/fbib-agent-windows.exe" -OutFile "C:\ProgramData\FBIBAgent\fbib-agent.exe"
 ```
 
 **Tamaño:** ~8 MB | **Dependencias:** NINGUNA (ejecutable standalone)
@@ -96,7 +96,7 @@ Antes de configurar el Agent, OGP te proporciona:
 | Dato | Ejemplo | Descripción |
 |---|---|---|
 | **Agency Key** | `ogp`, `hacienda`, `dtop` | Identificador único de tu agencia |
-| **Hub URL** | `https://hub.pr.gov` | URL del ASI Deploy Hub central (solo para config) |
+| **Hub URL** | `https://hub.pr.gov` | URL del FBIB Deploy Hub central (solo para config) |
 | **Source Type** | `UKG`, `SAP`, `ORACLE` | Tu sistema de recursos humanos |
 | **API Key** | `us-api-ogp-abc123...` | Tu API key para autenticarte contra UKG/SAP/Oracle |
 | **Client ID / Secret** | OAuth 2.0 credentials | Credenciales OAuth de tu sistema |
@@ -111,13 +111,13 @@ Antes de configurar el Agent, OGP te proporciona:
 
 ```bash
 # Linux
-asi-agent-linux \
+fbib-agent-linux \
   --agency-key ogp \
   --hub-url https://hub.pr.gov \
   --once
 
 # Windows
-C:\ProgramData\ASIAgent\asi-agent.exe ^
+C:\ProgramData\FBIBAgent\fbib-agent.exe ^
   --agency-key ogp ^
   --hub-url https://hub.pr.gov ^
   --once
@@ -125,7 +125,7 @@ C:\ProgramData\ASIAgent\asi-agent.exe ^
 
 **Salida esperada (con fuente configurada):**
 ```
-2026-06-22 10:00:01 [INFO] ASI Agent v1.0.0 starting for agency 'ogp'
+2026-06-22 10:00:01 [INFO] FBIB Agent v1.0.0 starting for agency 'ogp'
 2026-06-22 10:00:01 [INFO]   OS: Linux 6.8.0 | Python: 3.13 | Hub: https://hub.pr.gov
 2026-06-22 10:00:02 [INFO] Heartbeat sent. Status: 200
 2026-06-22 10:00:02 [INFO] Fetching config from Hub...
@@ -139,7 +139,7 @@ C:\ProgramData\ASIAgent\asi-agent.exe ^
 2026-06-22 10:00:06 [INFO] UKG: Page 4 → 300 employees (total: 3300)
 2026-06-22 10:00:06 [INFO] UKG: Fetch complete — 3300 total employees
 2026-06-22 10:00:06 [INFO] Filtering to 4 selected columns...
-2026-06-22 10:00:06 [INFO] SQLite written: /opt/asi-agent/data/empleados.db (3300 rows, chmod 444)
+2026-06-22 10:00:06 [INFO] SQLite written: /opt/fbib-agent/data/empleados.db (3300 rows, chmod 444)
 ```
 
 ### 4.2 Instalar como Servicio (recomendado)
@@ -148,21 +148,21 @@ C:\ProgramData\ASIAgent\asi-agent.exe ^
 
 ```bash
 # 1. Ejecutar el instalador
-sudo asi-agent-linux \
+sudo fbib-agent-linux \
   --agency-key ogp \
   --hub-url https://hub.pr.gov \
   --install-service
 
 # 2. Copiar el archivo de servicio generado
-sudo cp /tmp/asi-agent-ogp.service /etc/systemd/system/
+sudo cp /tmp/fbib-agent-ogp.service /etc/systemd/system/
 
 # 3. Activar e iniciar
 sudo systemctl daemon-reload
-sudo systemctl enable --now asi-agent-ogp
+sudo systemctl enable --now fbib-agent-ogp
 
 # 4. Verificar
-sudo systemctl status asi-agent-ogp
-sudo journalctl -u asi-agent-ogp -f    # logs en tiempo real
+sudo systemctl status fbib-agent-ogp
+sudo journalctl -u fbib-agent-ogp -f    # logs en tiempo real
 ```
 
 El Agent se ejecuta como servicio. Si el servidor se reinicia, el Agent arranca automáticamente.
@@ -174,16 +174,16 @@ El Agent se ejecuta como servicio. Si el servidor se reinicia, el Agent arranca 
 # https://nssm.cc/download
 
 # 2. Instalar el servicio
-nssm install ASIAgent C:\ProgramData\ASIAgent\asi-agent.exe
-nssm set ASIAgent AppParameters "--agency-key ogp --hub-url https://hub.pr.gov"
-nssm set ASIAgent DisplayName "ASI Deploy Agent (OGP)"
-nssm set ASIAgent Start SERVICE_AUTO_START
+nssm install FBIBAgent C:\ProgramData\FBIBAgent\fbib-agent.exe
+nssm set FBIBAgent AppParameters "--agency-key ogp --hub-url https://hub.pr.gov"
+nssm set FBIBAgent DisplayName "FBIB Deploy Agent (OGP)"
+nssm set FBIBAgent Start SERVICE_AUTO_START
 
 # 3. Iniciar
-nssm start ASIAgent
+nssm start FBIBAgent
 
 # 4. Verificar estado
-nssm status ASIAgent
+nssm status FBIBAgent
 ```
 
 ---
@@ -221,8 +221,8 @@ Tu aplicación lee los datos desde un archivo SQLite local que el Agent actualiz
 ### 6.1 Ubicación del archivo
 
 ```bash
-/opt/asi-agent/data/empleados.db     ← Read-only (r--r--r--)
-/opt/asi-agent/data/empleados.db-wal ← WAL journal (solo lectura)
+/opt/fbib-agent/data/empleados.db     ← Read-only (r--r--r--)
+/opt/fbib-agent/data/empleados.db-wal ← WAL journal (solo lectura)
 ```
 
 ### 6.2 Leer desde tu aplicación
@@ -232,7 +232,7 @@ Tu aplicación lee los datos desde un archivo SQLite local que el Agent actualiz
 import sqlite3
 
 # URI mode con ?mode=ro = IMPOSIBLE escribir
-conn = sqlite3.connect("file:/opt/asi-agent/data/empleados.db?mode=ro", uri=True)
+conn = sqlite3.connect("file:/opt/fbib-agent/data/empleados.db?mode=ro", uri=True)
 cursor = conn.cursor()
 
 # Tus datos, directo de tu fuente
@@ -241,7 +241,7 @@ for row in cursor:
     print(row["first_name"], row["last_name"], row["position_title"])
 
 # Leer metadatos
-cursor.execute("SELECT * FROM _asi_meta")
+cursor.execute("SELECT * FROM _fbib_meta")
 for key, val in cursor:
     print(f"{key}: {val}")
 # agency_key: ogp
@@ -261,7 +261,7 @@ import java.sql.*;
 Properties config = new Properties();
 config.setProperty("open_mode", "1");  // read-only
 Connection conn = DriverManager.getConnection(
-    "jdbc:sqlite:/opt/asi-agent/data/empleados.db", config
+    "jdbc:sqlite:/opt/fbib-agent/data/empleados.db", config
 );
 Statement stmt = conn.createStatement();
 ResultSet rs = stmt.executeQuery("SELECT * FROM empleados");
@@ -275,7 +275,7 @@ while (rs.next()) {
 using Microsoft.Data.Sqlite;
 
 var conn = new SqliteConnection(
-    "Data Source=/opt/asi-agent/data/empleados.db;Mode=ReadOnly"
+    "Data Source=/opt/fbib-agent/data/empleados.db;Mode=ReadOnly"
 );
 conn.Open();
 var cmd = new SqlCommand("SELECT * FROM empleados", conn);
@@ -288,7 +288,7 @@ while (reader.Read()) {
 ```javascript
 // Node.js — better-sqlite3 read-only
 const Database = require('better-sqlite3');
-const db = new Database('/opt/asi-agent/data/empleados.db', {
+const db = new Database('/opt/fbib-agent/data/empleados.db', {
     readonly: true,
     fileMustExist: true
 });
@@ -300,12 +300,12 @@ console.log(rows);
 
 ```python
 # Esto tira EXCEPTION porque el archivo es chmod 444
-conn = sqlite3.connect("file:/opt/asi-agent/data/empleados.db?mode=ro", uri=True)
+conn = sqlite3.connect("file:/opt/fbib-agent/data/empleados.db?mode=ro", uri=True)
 conn.execute("INSERT INTO empleados VALUES (...)")
 # sqlite3.OperationalError: attempt to write a readonly database
 
 # Y aunque cambiaras el mode=rw:
-$ ls -la /opt/asi-agent/data/empleados.db
+$ ls -la /opt/fbib-agent/data/empleados.db
 # -r--r--r-- 1 root root 2.1M Jun 22 10:00 empleados.db
 # ↑ Solo lectura a nivel de sistema operativo
 ```
@@ -328,10 +328,10 @@ $ ls -la /opt/asi-agent/data/empleados.db
 
 ### 6.5 Metadatos de la réplica
 
-Cada archivo SQLite incluye una tabla `_asi_meta`:
+Cada archivo SQLite incluye una tabla `_fbib_meta`:
 
 ```sql
-SELECT * FROM _asi_meta;
+SELECT * FROM _fbib_meta;
 ```
 
 | key | value (ejemplo) |
@@ -351,14 +351,14 @@ Después de configurar, verifica cada paso:
 
 | # | Verificación | Comando | Esperado |
 |---|---|---|---|
-| 1 | Agent instalado | `asi-agent-linux --help` | Muestra ayuda |
-| 2 | Agent conecta al Hub | `asi-agent-linux --agency-key ogp --hub-url https://hub.pr.gov --once` | Logs de pull de datos |
-| 3 | Servicio corriendo | `systemctl status asi-agent-ogp` | `active (running)` |
-| 4 | SQLite existe | `ls -la /opt/asi-agent/data/empleados.db` | `-r--r--r--` (read-only) |
-| 5 | SQLite legible | `sqlite3 /opt/asi-agent/data/empleados.db "SELECT COUNT(*) FROM empleados"` | Número > 0 |
-| 6 | SQLite NO escribible | `python3 -c "import sqlite3; sqlite3.connect('file:/opt/asi-agent/data/empleados.db?mode=ro',uri=True).execute('CREATE TABLE x(y)')"` | **ERROR** |
-| 7 | Metadatos correctos | `sqlite3 /opt/asi-agent/data/empleados.db "SELECT * FROM _asi_meta WHERE key='agency_key'"` | Tu agency key |
-| 8 | Columnas dinámicas | `sqlite3 /opt/asi-agent/data/empleados.db "SELECT value FROM _asi_meta WHERE key='columns'"` | Columnas del API de tu fuente |
+| 1 | Agent instalado | `fbib-agent-linux --help` | Muestra ayuda |
+| 2 | Agent conecta al Hub | `fbib-agent-linux --agency-key ogp --hub-url https://hub.pr.gov --once` | Logs de pull de datos |
+| 3 | Servicio corriendo | `systemctl status fbib-agent-ogp` | `active (running)` |
+| 4 | SQLite existe | `ls -la /opt/fbib-agent/data/empleados.db` | `-r--r--r--` (read-only) |
+| 5 | SQLite legible | `sqlite3 /opt/fbib-agent/data/empleados.db "SELECT COUNT(*) FROM empleados"` | Número > 0 |
+| 6 | SQLite NO escribible | `python3 -c "import sqlite3; sqlite3.connect('file:/opt/fbib-agent/data/empleados.db?mode=ro',uri=True).execute('CREATE TABLE x(y)')"` | **ERROR** |
+| 7 | Metadatos correctos | `sqlite3 /opt/fbib-agent/data/empleados.db "SELECT * FROM _fbib_meta WHERE key='agency_key'"` | Tu agency key |
+| 8 | Columnas dinámicas | `sqlite3 /opt/fbib-agent/data/empleados.db "SELECT value FROM _fbib_meta WHERE key='columns'"` | Columnas del API de tu fuente |
 
 ---
 
@@ -372,7 +372,7 @@ Después de configurar, verifica cada paso:
 | `No source configured` | OGP no ha configurado tu fuente | Contacta a OGP para que haga `PUT /source` en el Portal |
 | `INSERT permission denied` | **Está bien.** Es por diseño | No tienes permisos de escritura. Usa SELECT. |
 | `Heartbeat failed` | Firewall bloquea salida | Abre puerto 443/TCP saliente hacia `hub.pr.gov` y tu fuente (UKG/SAP/Oracle) |
-| Agent no arranca tras reboot | Servicio no enabled | `systemctl enable asi-agent-ogp` |
+| Agent no arranca tras reboot | Servicio no enabled | `systemctl enable fbib-agent-ogp` |
 
 ---
 
@@ -381,12 +381,12 @@ Después de configurar, verifica cada paso:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  PASO 1 — Descargar Agent (8 MB)                            │
-│  wget https://github.com/.../asi-agent-linux                │
+│  wget https://github.com/.../fbib-agent-linux                │
 │                                                              │
 │  PASO 2 — Instalar como servicio                             │
-│  asi-agent-linux --agency-key ogp --hub-url ... --install    │
-│  sudo cp /tmp/asi-agent-ogp.service /etc/systemd/system/     │
-│  sudo systemctl enable --now asi-agent-ogp                  │
+│  fbib-agent-linux --agency-key ogp --hub-url ... --install    │
+│  sudo cp /tmp/fbib-agent-ogp.service /etc/systemd/system/     │
+│  sudo systemctl enable --now fbib-agent-ogp                  │
 │                                                              │
 │  PASO 3 — OGP configura tu fuente en el Portal              │
 │  PUT /source → UKG + tu API key + OAuth creds               │
@@ -394,7 +394,7 @@ Después de configurar, verifica cada paso:
 │  El Agent jala automáticamente en el próximo ciclo.         │
 │                                                              │
 │  PASO 4 — Verificar primera carga                            │
-│  ls -la /opt/asi-agent/data/empleados.db                    │
+│  ls -la /opt/fbib-agent/data/empleados.db                    │
 │  → -r--r--r--  empleados.db                                 │
 │  sqlite3 empleados.db "SELECT COUNT(*) FROM empleados"      │
 │  → 3300 (o los que tenga tu fuente)                         │
@@ -405,7 +405,7 @@ Después de configurar, verifica cada paso:
 │                                                              │
 │  PASO 6 — Verificar read-only                                │
 │  Intentar INSERT → PERMISSION DENIED ✓                      │
-│  systemctl status asi-agent-ogp → active (running)          │
+│  systemctl status fbib-agent-ogp → active (running)          │
 │                                                              │
 │  ✅ Columnas dinámicas — API de tu fuente las define        │
 │  ✅ Cero dependencias externas                               │
@@ -417,9 +417,9 @@ Después de configurar, verifica cada paso:
 
 ---
 
-## 🆚 Comparativa: ASI Agent vs Boomi Atom
+## 🆚 Comparativa: FBIB Agent vs Boomi Atom
 
-| | Boomi Atom | ASI Agent |
+| | Boomi Atom | FBIB Agent |
 |---|---|---|
 | **Descargar** | Java 11+ JDK + Atom installer (~500 MB) | 1 ejecutable (~8 MB) |
 | **Instalar** | Wizard gráfico o script complejo | 1 comando |

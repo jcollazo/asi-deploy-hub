@@ -1,4 +1,4 @@
-# ASI Architecture — Mermaid Diagrams
+# FBIB Architecture — Mermaid Diagrams
 
 ## System Overview
 
@@ -11,24 +11,24 @@ graph TB
         COL["PUT /columns → filtrar columnas<br/>(opcional — API define las disponibles)"]
     end
 
-    subgraph Hub["🌐 ASI Deploy Hub API :8900"]
+    subgraph Hub["🌐 FBIB Deploy Hub API :8900"]
         CONFIG["GET /api/agent/{key}/config<br/>→ source_type, creds, selected_columns"]
     end
 
     subgraph Agencia1["🏛️ Agencia OGP"]
-        AG1["🤖 ASI Agent"]
+        AG1["🤖 FBIB Agent"]
         SQL1[("📦 empleados.db<br/>chmod 444")]
         APP1["🖥️ App RH"]
     end
 
     subgraph Agencia2["🏛️ Agencia Hacienda"]
-        AG2["🤖 ASI Agent"]
+        AG2["🤖 FBIB Agent"]
         SQL2[("📦 empleados.db<br/>chmod 444")]
         APP2["🖥️ App RH"]
     end
 
     subgraph Agencia3["🏛️ Agencia DTOP"]
-        AG3["🤖 ASI Agent"]
+        AG3["🤖 FBIB Agent"]
         SQL3[("📦 empleados.db<br/>chmod 444")]
         APP3["🖥️ App RH"]
     end
@@ -296,7 +296,7 @@ stateDiagram-v2
 
 ---
 
-## Comparativa Boomi vs ASI
+## Comparativa Boomi vs FBIB
 
 ```mermaid
 graph TB
@@ -308,7 +308,7 @@ graph TB
         B5["🔴 INSERT/UPDATE<br/>en DB agencia"]
     end
 
-    subgraph ASI["✅ ASI — ~$240/año"]
+    subgraph FBIB["✅ FBIB — ~$240/año"]
         A1["Admin Portal<br/>Config por agencia"]
         A2["Agent ×19<br/>Pull directo de UKG/SAP/Oracle<br/>Columnas dinámicas del API"]
         A3["SQLite local<br/>chmod 444"]

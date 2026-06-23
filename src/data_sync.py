@@ -1,5 +1,5 @@
 # ============================================================
-# data_sync.py — ASI Agent: Data Sync Module
+# data_sync.py — FBIB Agent: Data Sync Module
 # ============================================================
 # Syncs data from Hub → Agency's local DB.
 # Paginated pull, AES-256-GCM decrypt, INSERT/UPDATE local.
@@ -9,7 +9,7 @@ import logging
 import os
 from datetime import datetime
 
-logger = logging.getLogger("asi-data-sync")
+logger = logging.getLogger("fbib-data-sync")
 
 
 class DataSyncer:

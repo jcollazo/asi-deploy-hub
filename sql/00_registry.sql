@@ -1,5 +1,5 @@
 -- ============================================================
--- 00_registry.sql — ASI Deploy Hub: Registry Schema
+-- 00_registry.sql — FBIB Deploy Hub: Registry Schema
 -- ============================================================
 -- Central registry for releases, agencies, and deployments.
 -- ============================================================
@@ -145,7 +145,7 @@ CREATE TABLE dbo.agent_heartbeats (
 CREATE INDEX IX_heartbeats_agency ON dbo.agent_heartbeats(agency_id, created_at DESC);
 GO
 
-PRINT '✅ ASI Deploy Hub — Registry schema created';
+PRINT '✅ FBIB Deploy Hub — Registry schema created';
 GO
 
 -- ─── Sync State (per agency, per pipeline — tracks last sync) ─

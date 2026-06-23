@@ -1,0 +1,16 @@
+[Unit]
+Description=FBIB Deploy Hub API
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/fbib-deploy-hub
+Environment=FBIB_DEPLOY_DB=DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost,1433;DATABASE=FBIBDeployHub;UID=sa;PWD=changeme;Encrypt=no;TrustServerCertificate=yes;
+Environment=FBIB_ARTIFACT_STORE=/opt/data/fbib-artifacts
+ExecStart=/usr/bin/python3 /opt/fbib-deploy-hub/src/hub.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

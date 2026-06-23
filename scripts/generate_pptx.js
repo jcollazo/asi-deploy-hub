@@ -39,12 +39,12 @@ async function main() {
   const pres = new pptxgen();
   pres.layout = "LAYOUT_16x9";
   pres.author = "PRITS — Gobierno de Puerto Rico";
-  pres.title = "ASI Deploy Hub — Arquitectura";
+  pres.title = "FBIB Deploy Hub — Arquitectura";
 
   // Title
   const ts = pres.addSlide();
   ts.background = { color: NAVY };
-  ts.addText("ASI Deploy Hub", { x: 0.8, y: 1.0, w: 8.4, h: 1.2, fontSize: 44, fontFace: "Georgia", color: GOLD, bold: true, margin: 0 });
+  ts.addText("FBIB Deploy Hub", { x: 0.8, y: 1.0, w: 8.4, h: 1.2, fontSize: 44, fontFace: "Georgia", color: GOLD, bold: true, margin: 0 });
   ts.addText("Arquitectura del Sistema", { x: 0.8, y: 2.1, w: 8.4, h: 0.7, fontSize: 22, fontFace: "Calibri", color: WHITE, margin: 0 });
   ts.addText("Plataforma de despliegue gubernamental multi-agencia", { x: 0.8, y: 2.8, w: 8.4, h: 0.5, fontSize: 14, fontFace: "Calibri", color: MUTED, margin: 0 });
   ts.addShape(pres.shapes.RECTANGLE, { x: 0.8, y: 3.5, w: 1.5, h: 0.04, fill: { color: GOLD } });
@@ -64,7 +64,7 @@ async function main() {
     slide.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: 10, h: 0.95, fill: { color: NAVY } });
     slide.addText(d.title, { x: 0.6, y: 0.15, w: 8.8, h: 0.65, fontSize: 20, fontFace: "Georgia", color: WHITE, bold: true, margin: 0 });
     slide.addImage({ path: d.png, x: 0.3, y: 1.05, w: 9.4, h: 4.3, sizing: { type: "contain", w: 9.4, h: 4.3 } });
-    slide.addText(`PRITS  ·  ASI Deploy Hub  ·  ${d.title}`, { x: 0.4, y: 5.25, w: 9.2, h: 0.3, fontSize: 8, fontFace: "Calibri", color: MUTED, margin: 0 });
+    slide.addText(`PRITS  ·  FBIB Deploy Hub  ·  ${d.title}`, { x: 0.4, y: 5.25, w: 9.2, h: 0.3, fontSize: 8, fontFace: "Calibri", color: MUTED, margin: 0 });
   }
 
   // Gracias
@@ -74,7 +74,7 @@ async function main() {
   gs.addText("PRITS  ·  Gobierno de Puerto Rico", { x: 0.8, y: 2.6, w: 8.4, h: 0.5, fontSize: 18, fontFace: "Calibri", color: WHITE, margin: 0 });
   gs.addShape(pres.shapes.RECTANGLE, { x: 0.8, y: 3.3, w: 1.5, h: 0.04, fill: { color: GOLD } });
 
-  const outPath = "/opt/data/asi-deploy-hub/docs/ASI_Arquitectura.pptx";
+  const outPath = "/opt/data/asi-deploy-hub/docs/Arquitectura_FBIB.pptx";
   await pres.writeFile({ fileName: outPath });
   console.log(`\n✅ ${outPath}  (${diagrams.length+3} slides)`);
 }

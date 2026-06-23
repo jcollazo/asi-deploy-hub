@@ -44,18 +44,18 @@ function App() {
   const [route, navigate] = useRoute();
   const [user, setUser] = useState(() => {
     try {
-      return JSON.parse(sessionStorage.getItem('asi_user'));
+      return JSON.parse(sessionStorage.getItem('fbib_user'));
     } catch { return null; }
   });
 
   const handleLogin = (userData) => {
     setUser(userData);
-    sessionStorage.setItem('asi_user', JSON.stringify(userData));
+    sessionStorage.setItem('fbib_user', JSON.stringify(userData));
   };
 
   const handleLogout = () => {
     setUser(null);
-    sessionStorage.removeItem('asi_user');
+    sessionStorage.removeItem('fbib_user');
   };
 
   // Agency Portal — public, no login needed
@@ -74,10 +74,10 @@ function App() {
       <aside className="w-56 flex-shrink-0 flex flex-col" style={{ background: 'var(--sidebar)' }}>
         <div className="p-4 border-b" style={{ borderColor: 'var(--nav-active)' }}>
           <h1 className="text-sm font-bold tracking-wide" style={{ color: 'var(--gold)' }}>
-            ASI Deploy Hub
+            FBIB Deploy Hub
           </h1>
           <p className="text-xs mt-0.5" style={{ color: 'var(--nav-inactive)' }}>
-            v1.1 · Admin
+            Oficina de Gerencia y Presupuesto
           </p>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">

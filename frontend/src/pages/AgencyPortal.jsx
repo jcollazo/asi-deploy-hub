@@ -116,7 +116,7 @@ function AgencyShell({ agencyKey, agencyName, children }) {
       {/* Minimal header */}
       <header className="flex items-center justify-between px-6 py-3 border-b" style={{ background: '#fff', borderColor: 'var(--border)' }}>
         <div className="flex items-center gap-3">
-          <div className="font-bold text-sm" style={{ color: 'var(--gov-navy)' }}>🏛️ ASI Hub</div>
+          <div className="font-bold text-sm" style={{ color: 'var(--gov-navy)' }}>🏛️ FBIB Hub</div>
           <span style={{ color: 'var(--muted)' }}>·</span>
           <span className="text-sm font-mono font-bold" style={{ color: 'var(--gold)' }}>{agencyKey?.toUpperCase()}</span>
           {agencyName && <span className="text-sm" style={{ color: 'var(--muted)' }}>— {agencyName}</span>}

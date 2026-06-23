@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================
-# data_replica.py — ASI Agent: SQLite Read-Only Data Replica
+# data_replica.py — FBIB Agent: SQLite Read-Only Data Replica
 # ============================================================
 # Downloads a SQLite database from the Hub, verifies SHA-256,
 # replaces the existing replica atomically, and sets it
@@ -18,10 +18,10 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-logger = logging.getLogger("asi-data-replica")
+logger = logging.getLogger("fbib-data-replica")
 
 # ─── Config ───────────────────────────────────────────────────
-DATA_DIR = Path(os.getenv("ASI_AGENT_DATA_DIR", "/opt/asi-agent/data"))
+DATA_DIR = Path(os.getenv("FBIB_AGENT_DATA_DIR", "/opt/fbib-agent/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -29,7 +29,7 @@ class DataReplica:
     """Downloads and manages read-only SQLite data replicas from the Hub.
 
     The agency's app opens this file in read-only mode:
-        conn = sqlite3.connect("file:/opt/asi-agent/data/empleados.db?mode=ro", uri=True)
+        conn = sqlite3.connect("file:/opt/fbib-agent/data/empleados.db?mode=ro", uri=True)
     """
 
     def __init__(self, agency_key: str, hub_url: str):
@@ -190,7 +190,7 @@ if __name__ == "__main__":
     import argparse
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-    parser = argparse.ArgumentParser(description="ASI Data Replica — Test")
+    parser = argparse.ArgumentParser(description="FBIB Data Replica — Test")
     parser.add_argument("--agency-key", required=True)
     parser.add_argument("--hub-url", required=True)
     parser.add_argument("--deployment-id", type=int, required=True)

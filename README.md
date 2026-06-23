@@ -1,10 +1,10 @@
-# ASI Deploy Hub
+# FBIB Deploy Hub
 
 **Sistema de despliegue remoto para gobierno. Push updates a múltiples agencias. Linux + Windows. SHA-256 audit chain. Rollback automático.**
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    ASI DEPLOY HUB                            │
+│                    FBIB DEPLOY HUB                            │
 │                                                               │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │  ADMIN PORTAL (React)                                │    │
@@ -43,27 +43,27 @@
 
 ```bash
 # 1. Descargar el ejecutable (no necesita Python ni nada)
-wget https://github.com/jcollazo/asi-deploy-hub/releases/latest/download/asi-agent-linux
-chmod +x asi-agent-linux
+wget https://github.com/jcollazo/fbib-deploy-hub/releases/latest/download/fbib-agent-linux
+chmod +x fbib-agent-linux
 
 # 2. Ejecutar (reemplaza 'ogp' con tu key)
-./asi-agent-linux --agency-key ogp --hub-url https://hub.pr.gov
+./fbib-agent-linux --agency-key ogp --hub-url https://hub.pr.gov
 
 # 3. (Opcional) Instalar como servicio para que corra siempre
-sudo ./asi-agent-linux --agency-key ogp --hub-url https://hub.pr.gov --install-service
+sudo ./fbib-agent-linux --agency-key ogp --hub-url https://hub.pr.gov --install-service
 ```
 
 ### Windows
 
 ```powershell
 # 1. Descargar el ejecutable
-Invoke-WebRequest -Uri "https://github.com/jcollazo/asi-deploy-hub/releases/latest/download/asi-agent-windows.exe" -OutFile "asi-agent.exe"
+Invoke-WebRequest -Uri "https://github.com/jcollazo/fbib-deploy-hub/releases/latest/download/fbib-agent-windows.exe" -OutFile "fbib-agent.exe"
 
 # 2. Ejecutar (doble click o desde terminal)
-.\asi-agent.exe --agency-key hacienda --hub-url https://hub.pr.gov
+.\fbib-agent.exe --agency-key hacienda --hub-url https://hub.pr.gov
 
 # 3. (Opcional) Instalar como servicio Windows
-.\asi-agent.exe --agency-key hacienda --hub-url https://hub.pr.gov --install-service
+.\fbib-agent.exe --agency-key hacienda --hub-url https://hub.pr.gov --install-service
 ```
 
 > ⚡ **Cero dependencias.** El ejecutable incluye Python, requests, y todo lo necesario. ~8 MB.
@@ -83,14 +83,14 @@ Si la agencia necesita los datos en su propia base de datos:
 ```bash
 # 1. La agencia crea un usuario en su DB
 #    (SQL Server, Oracle, o PostgreSQL)
-CREATE USER asi_sync WITH PASSWORD='***';
-GRANT INSERT, UPDATE ON empleados TO asi_sync;
+CREATE USER fbib_sync WITH PASSWORD='***';
+GRANT INSERT, UPDATE ON empleados TO fbib_sync;
 
 # 2. Ejecutar el Agent con --db-conn
-./asi-agent-linux \
+./fbib-agent-linux \
   --agency-key ogp \
   --hub-url https://hub.pr.gov \
-  --db-conn "DRIVER={ODBC Driver 18 for SQL Server};SERVER=10.0.1.50;DATABASE=HR;UID=asi_sync;PWD=***"
+  --db-conn "DRIVER={ODBC Driver 18 for SQL Server};SERVER=10.0.1.50;DATABASE=HR;UID=fbib_sync;PWD=***"
 
 # El Agent ahora:
 # → Cada 60s: revisa si hay software nuevo → despliega
@@ -106,10 +106,10 @@ GRANT INSERT, UPDATE ON empleados TO asi_sync;
 
 ```bash
 # Configurar base de datos
-export ASI_DEPLOY_DB="DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=ASIDeployHub;..."
+export FBIB_DEPLOY_DB="DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;DATABASE=FBIBDeployHub;..."
 
 # Crear tablas
-sqlcmd -S localhost -d ASIDeployHub -i sql/00_registry.sql
+sqlcmd -S localhost -d FBIBDeployHub -i sql/00_registry.sql
 
 # Instalar dependencias
 pip install -r requirements.txt
@@ -151,13 +151,13 @@ python src/agent.py \
   --poll-interval 60
 
 # Systemd service (Linux)
-sudo tee /etc/systemd/system/asi-agent.service << 'EOF'
+sudo tee /etc/systemd/system/fbib-agent.service << 'EOF'
 [Unit]
-Description=ASI Deploy Agent
+Description=FBIB Deploy Agent
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 /opt/asi-agent/agent.py --agency-key ogp --hub-url https://hub.pr.gov
+ExecStart=/usr/bin/python3 /opt/fbib-agent/agent.py --agency-key ogp --hub-url https://hub.pr.gov
 Restart=always
 RestartSec=30
 
@@ -165,7 +165,7 @@ RestartSec=30
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl enable --now asi-agent
+sudo systemctl enable --now fbib-agent
 ```
 
 ### 4. Agente en Windows
@@ -178,8 +178,8 @@ pip install requests
 python src/agent.py --agency-key hacienda --hub-url https://hub.pr.gov
 
 # O instalar como servicio Windows con NSSM
-nssm install ASIAgent "C:\Python312\python.exe" "C:\asi-agent\agent.py --agency-key hacienda --hub-url https://hub.pr.gov"
-nssm start ASIAgent
+nssm install FBIBAgent "C:\Python312\python.exe" "C:\fbib-agent\agent.py --agency-key hacienda --hub-url https://hub.pr.gov"
+nssm start FBIBAgent
 ```
 
 ---
@@ -216,7 +216,7 @@ nssm start ASIAgent
 ## 📁 Estructura
 
 ```
-asi-deploy-hub/
+fbib-deploy-hub/
 ├── src/
 │   ├── hub.py           # Central API server (FastAPI)
 │   └── agent.py         # Cross-platform agent (Linux + Windows)

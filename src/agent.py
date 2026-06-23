@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================
-# agent.py — ASI Deploy Hub: Cross-Platform Agent
+# agent.py — FBIB Deploy Hub: Cross-Platform Agent
 # ============================================================
 # Runs on Linux or Windows. Polls hub, downloads releases,
 # verifies SHA-256, executes deploy scripts, reports status.
@@ -30,9 +30,9 @@ import requests
 AGENT_VERSION = "1.0.0"
 DEFAULT_POLL_INTERVAL = 60  # seconds
 BACKUP_KEEP_COUNT = 3        # Keep last N releases locally
-BACKUP_DIR = Path(os.getenv("ASI_AGENT_BACKUP_DIR", "/opt/asi-agent/backups"))
+BACKUP_DIR = Path(os.getenv("FBIB_AGENT_BACKUP_DIR", "/opt/fbib-agent/backups"))
 if platform.system() == "Windows":
-    BACKUP_DIR = Path(os.getenv("ASI_AGENT_BACKUP_DIR", "C:\\ProgramData\\ASIAgent\\backups"))
+    BACKUP_DIR = Path(os.getenv("FBIB_AGENT_BACKUP_DIR", "C:\\ProgramData\\FBIBAgent\\backups"))
 
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -41,11 +41,11 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[logging.StreamHandler(), logging.FileHandler(BACKUP_DIR / "agent.log")],
 )
-logger = logging.getLogger("asi-agent")
+logger = logging.getLogger("fbib-agent")
 
 
 # ─── Main Agent Loop ──────────────────────────────────────────
-class ASIAgent:
+class FBIBAgent:
     def __init__(self, agency_key: str, hub_url: str, poll_interval: int = DEFAULT_POLL_INTERVAL, db_conn_str: str = None):
         self.agency_key = agency_key
         self.hub_url = hub_url.rstrip("/")
@@ -56,7 +56,7 @@ class ASIAgent:
 
     def run(self):
         """Main loop — poll forever."""
-        logger.info("ASI Agent v%s starting for agency '%s'", AGENT_VERSION, self.agency_key)
+        logger.info("FBIB Agent v%s starting for agency '%s'", AGENT_VERSION, self.agency_key)
         logger.info("  OS: %s | Python: %s | Hub: %s", self.os_info, self.python_version, self.hub_url)
         if self.db_conn_str:
             logger.info("  DB: Connection string configured (read-only verify on startup)")
@@ -103,7 +103,7 @@ class ASIAgent:
 
             # Test that INSERT is denied
             try:
-                cursor.execute("INSERT INTO __asi_readonly_test__ VALUES (1)")
+                cursor.execute("INSERT INTO __fbib_readonly_test__ VALUES (1)")
                 logger.warning("  ⚠ INSERT allowed! DB user has write permissions — this should NOT happen!")
             except pyodbc.Error as e:
                 logger.info("  INSERT denied ✓ (read-only confirmed: %s)", str(e).split(".")[0])
@@ -186,9 +186,9 @@ class ASIAgent:
                 )
 
             # Metadata
-            conn.execute("CREATE TABLE _asi_meta (key TEXT PRIMARY KEY, value TEXT)")
+            conn.execute("CREATE TABLE _fbib_meta (key TEXT PRIMARY KEY, value TEXT)")
             conn.executemany(
-                "INSERT INTO _asi_meta VALUES (?, ?)",
+                "INSERT INTO _fbib_meta VALUES (?, ?)",
                 [
                     ("agency_key", self.agency_key),
                     ("source_type", source_type),
@@ -403,7 +403,7 @@ class ASIAgent:
         backup_path = BACKUP_DIR / f"{app_name}_backup_{ts}.zip"
 
         # If deploy script defines APP_DIR, back that up
-        app_dir = os.getenv(f"ASI_APP_{app_name.upper().replace('-', '_')}_DIR")
+        app_dir = os.getenv(f"FBIB_APP_{app_name.upper().replace('-', '_')}_DIR")
         if app_dir and os.path.isdir(app_dir):
             shutil.make_archive(str(backup_path.with_suffix("")), "zip", app_dir)
             logger.info("  Backup saved: %s", backup_path)
@@ -417,7 +417,7 @@ class ASIAgent:
         output = []
 
         # Extract zip
-        extract_dir = tempfile.mkdtemp(prefix=f"asi_{app_name}_")
+        extract_dir = tempfile.mkdtemp(prefix=f"fbib_{app_name}_")
         with zipfile.ZipFile(artifact_path, "r") as zf:
             zf.extractall(extract_dir)
         output.append(f"Extracted {len(os.listdir(extract_dir))} files to {extract_dir}")
@@ -449,7 +449,7 @@ class ASIAgent:
                 raise RuntimeError(f"Deploy script failed (exit {result.returncode}): {result.stderr[:500]}")
 
         # Move extracted files to APP_DIR
-        app_dir = os.getenv(f"ASI_APP_{app_name.upper().replace('-', '_')}_DIR")
+        app_dir = os.getenv(f"FBIB_APP_{app_name.upper().replace('-', '_')}_DIR")
         if app_dir:
             os.makedirs(app_dir, exist_ok=True)
             for item in os.listdir(extract_dir):
@@ -486,10 +486,10 @@ class ASIAgent:
 
     def _get_installed_apps(self) -> dict:
         """Read installed app versions from env or registry."""
-        # Simple implementation — apps define ASI_APP_<NAME>_VERSION env var
+        # Simple implementation — apps define FBIB_APP_<NAME>_VERSION env var
         apps = {}
         for key, val in os.environ.items():
-            if key.startswith("ASI_APP_") and key.endswith("_VERSION"):
+            if key.startswith("FBIB_APP_") and key.endswith("_VERSION"):
                 app_name = key[8:-8].lower().replace("_", "-")
                 apps[app_name] = val
         return apps
@@ -500,14 +500,14 @@ def install_service(args):
     """Install agent as a system service (systemd on Linux, NSSM hint on Windows)."""
     if platform.system() == "Windows":
         print("=" * 60)
-        print("  ASI Agent — Windows Service Installation")
+        print("  FBIB Agent — Windows Service Installation")
         print("=" * 60)
         print()
         print("  Para instalar como servicio en Windows, usa NSSM:")
         print()
-        print(f"  nssm install ASIAgent C:\\Python312\\python.exe")
-        print(f'  nssm set ASIAgent AppParameters "--agency-key {args.agency_key} --hub-url {args.hub_url}"')
-        print(f"  nssm start ASIAgent")
+        print(f"  nssm install FBIBAgent C:\\Python312\\python.exe")
+        print(f'  nssm set FBIBAgent AppParameters "--agency-key {args.agency_key} --hub-url {args.hub_url}"')
+        print(f"  nssm start FBIBAgent")
         print()
         print("  Descarga NSSM: https://nssm.cc/download")
         print("=" * 60)
@@ -517,7 +517,7 @@ def install_service(args):
     import getpass
     db_conn_part = f" --db-conn '{args.db_conn}'" if hasattr(args, 'db_conn') and args.db_conn else ""
     service_content = f"""[Unit]
-Description=ASI Deploy Agent ({args.agency_key})
+Description=FBIB Deploy Agent ({args.agency_key})
 After=network.target
 
 [Service]
@@ -530,12 +530,12 @@ User={getpass.getuser()}
 [Install]
 WantedBy=multi-user.target
 """
-    service_path = f"/tmp/asi-agent-{args.agency_key}.service"
+    service_path = f"/tmp/fbib-agent-{args.agency_key}.service"
     with open(service_path, "w") as f:
         f.write(service_content)
 
     print("=" * 60)
-    print(f"  ASI Agent — Linux Service (systemd)")
+    print(f"  FBIB Agent — Linux Service (systemd)")
     print("=" * 60)
     print(f"  Agency: {args.agency_key}")
     print(f"  Hub:    {args.hub_url}")
@@ -544,7 +544,7 @@ WantedBy=multi-user.target
     print()
     print(f"  sudo cp {service_path} /etc/systemd/system/")
     print(f"  sudo systemctl daemon-reload")
-    print(f"  sudo systemctl enable --now asi-agent-{args.agency_key}")
+    print(f"  sudo systemctl enable --now fbib-agent-{args.agency_key}")
     print()
     print(f"  Servicio guardado en: {service_path}")
     print("=" * 60)
@@ -552,9 +552,9 @@ WantedBy=multi-user.target
 
 # ─── CLI ──────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description="ASI Deploy Hub — Cross-Platform Agent")
+    parser = argparse.ArgumentParser(description="FBIB Deploy Hub — Cross-Platform Agent")
     parser.add_argument("--agency-key", required=True, help="Agency identifier (e.g., 'ogp', 'hacienda')")
-    parser.add_argument("--hub-url", required=True, help="ASI Hub API URL (e.g., 'https://hub.example.com')")
+    parser.add_argument("--hub-url", required=True, help="FBIB Hub API URL (e.g., 'https://hub.example.com')")
     parser.add_argument("--poll-interval", type=int, default=DEFAULT_POLL_INTERVAL,
                         help=f"Seconds between polls (default: {DEFAULT_POLL_INTERVAL})")
     parser.add_argument("--once", action="store_true", help="Check once and exit (don't loop)")
@@ -573,11 +573,11 @@ def main():
         if not args.db_conn:
             print("ERROR: --db-conn is required with --verify-db")
             sys.exit(1)
-        agent = ASIAgent(args.agency_key, args.hub_url, args.poll_interval, args.db_conn)
+        agent = FBIBAgent(args.agency_key, args.hub_url, args.poll_interval, args.db_conn)
         agent._verify_db_readonly()
         return
 
-    agent = ASIAgent(args.agency_key, args.hub_url, args.poll_interval, args.db_conn)
+    agent = FBIBAgent(args.agency_key, args.hub_url, args.poll_interval, args.db_conn)
 
     if args.once:
         pending = agent._check_pending()

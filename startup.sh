@@ -1,17 +1,17 @@
 #!/bin/bash
 # ============================================================
-# startup.sh — Azure Web App entrypoint for ASI Deploy Hub
+# startup.sh — Azure Web App entrypoint for FBIB Deploy Hub
 # ============================================================
 # Azure asigna PORT dinámico. uvicorn lo lee del environment.
 # La app sirve:
 #   /          → React Admin Portal (frontend/dist/)
-#   /api/*     → ASI Deploy Hub REST API
+#   /api/*     → FBIB Deploy Hub REST API
 #   /docs      → Swagger (FastAPI auto)
 #   /health    → Health check
 # ============================================================
 set -e
 
-echo "🚀 ASI Deploy Hub starting..."
+echo "🚀 FBIB Deploy Hub starting..."
 echo "   PORT: ${PORT:-8000}"
 echo "   Python: $(python3 --version)"
 

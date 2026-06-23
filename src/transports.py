@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ============================================================
-# transports.py — ASI Agent: Data Source Connectors
+# transports.py — FBIB Agent: Data Source Connectors
 # ============================================================
 # Each agency has ONE data source: UKG, SAP, or Oracle.
 # The Agent uses this module to pull employee data directly
@@ -9,7 +9,7 @@
 import logging
 from datetime import datetime
 
-logger = logging.getLogger("asi-transports")
+logger = logging.getLogger("fbib-transports")
 
 
 # ─── Transport Factory ────────────────────────────────────────
