@@ -21,6 +21,8 @@ CREATE TABLE dbo.agencies (
     client_secret   NVARCHAR(500),                  -- Encrypted: OAuth 2.0 client_secret
     source_url      NVARCHAR(500),                  -- Base URL: https://api.ultipro.com | https://sap.pr.gov
     selected_columns NVARCHAR(MAX),                 -- Comma-separated: 'eeid,first_name,last_name' | NULL=ALL
+    connection_type NVARCHAR(20),                   -- 'API_KEY' or 'USER_PASS' (only for UKG source_type)
+    rice_ids        NVARCHAR(MAX),                  -- Comma-separated RICE report IDs (only for UKG API_KEY mode): 'RPT001,RPT002'
     metadata_json   NVARCHAR(MAX),                  -- JSON: tags, contact, notes
     created_at      DATETIME2 DEFAULT SYSUTCDATETIME(),
     updated_at      DATETIME2 DEFAULT SYSUTCDATETIME()
@@ -40,6 +42,10 @@ IF COL_LENGTH('dbo.agencies', 'client_secret') IS NULL
     ALTER TABLE dbo.agencies ADD client_secret NVARCHAR(500);
 IF COL_LENGTH('dbo.agencies', 'source_url') IS NULL
     ALTER TABLE dbo.agencies ADD source_url NVARCHAR(500);
+IF COL_LENGTH('dbo.agencies', 'connection_type') IS NULL
+    ALTER TABLE dbo.agencies ADD connection_type NVARCHAR(20);
+IF COL_LENGTH('dbo.agencies', 'rice_ids') IS NULL
+    ALTER TABLE dbo.agencies ADD rice_ids NVARCHAR(MAX);
 GO
 
 -- ─── Applications (software projects to deploy) ─────────────

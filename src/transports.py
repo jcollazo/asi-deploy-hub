@@ -32,19 +32,37 @@ def get_transport(config: dict):
 
 # ─── UKG Pro Transport ────────────────────────────────────────
 class UKGTransport:
-    """Pull employee data from UKG Pro REST API."""
+    """Pull employee data from UKG Pro REST API.
+
+    Dual mode:
+      - API_KEY  → Uses X-US-API-Key directly (no OAuth2). Fetches
+                   data from each configured RICE report ID.
+      - USER_PASS → OAuth 2.0 client_credentials grant. Paginated
+                   employee list from /personnel/v1/employees.
+    """
 
     def __init__(self, config: dict):
         self.base_url = config.get("source_url", "https://api.ultipro.com").rstrip("/")
-        self.api_key = config.get("api_key")         # X-US-API-Key
-        self.client_id = config.get("client_id")     # OAuth 2.0
-        self.client_secret = config.get("client_secret")
+        self.api_key = config.get("api_key")               # X-US-API-Key
+        self.client_id = config.get("client_id")           # OAuth 2.0 (USER_PASS mode)
+        self.client_secret = config.get("client_secret")   # OAuth 2.0 (USER_PASS mode)
+        self.connection_type = (config.get("connection_type") or "USER_PASS").upper()
+        # RICE IDs: comma-separated string → list
+        rice_raw = config.get("rice_ids") or ""
+        self.rice_ids = [r.strip() for r in rice_raw.split(",") if r.strip()]
         self.token = None
 
     def authenticate(self):
-        """OAuth 2.0 Client Credentials grant."""
+        """OAuth 2.0 Client Credentials grant (USER_PASS mode only).
+
+        API_KEY mode skips authentication — the key is sent as a header.
+        """
+        if self.connection_type == "API_KEY":
+            logger.info("UKG: API_KEY mode — no OAuth2 needed")
+            return
+
         import requests
-        logger.info("UKG: Authenticating via OAuth 2.0...")
+        logger.info("UKG: Authenticating via OAuth 2.0 (USER_PASS mode)...")
         resp = requests.post(
             f"{self.base_url}/auth/oauth/v2/token",
             data={
@@ -59,7 +77,82 @@ class UKGTransport:
         logger.info("UKG: Token obtained (expires in %ds)", resp.json().get("expires_in", 0))
 
     def fetch_employees(self) -> list[dict]:
-        """Paginated fetch of all employees for this agency."""
+        """Fetch employees — branches by connection_type.
+
+        API_KEY  → Iterate RICE IDs, call report data endpoint per ID.
+        USER_PASS → OAuth2 + paginated /personnel/v1/employees.
+        """
+        if self.connection_type == "API_KEY":
+            return self._fetch_via_rice()
+        else:
+            return self._fetch_via_oauth()
+
+    def _fetch_via_rice(self) -> list[dict]:
+        """API_KEY mode: call each RICE report endpoint and merge results.
+
+        Each RICE ID is a pre-configured UKG report. The endpoint is:
+            GET {base_url}/personnel/v1/reports/{rice_id}/data
+
+        The API key is sent as X-US-API-Key header.
+        """
+        import requests
+
+        if not self.rice_ids:
+            logger.warning("UKG: API_KEY mode selected but no RICE IDs configured")
+            return []
+
+        all_employees = []
+        seen_ids = set()
+
+        for rice_id in self.rice_ids:
+            logger.info("UKG: Fetching RICE report '%s'...", rice_id)
+            page = 1
+            per_page = 1000
+
+            while True:
+                resp = requests.get(
+                    f"{self.base_url}/personnel/v1/reports/{rice_id}/data",
+                    headers={
+                        "X-US-API-Key": self.api_key,
+                        "Accept": "application/json",
+                    },
+                    params={
+                        "page": page,
+                        "per_page": per_page,
+                    },
+                    timeout=120,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                rows = data.get("data", data.get("rows", data.get("employees", [])))
+                total = data.get("totalCount", data.get("total", 0))
+
+                # Deduplicate by employeeId field (common across RICE reports)
+                new_rows = []
+                for row in rows:
+                    eid = row.get("employeeId") or row.get("eeid") or row.get("employee_id")
+                    if eid and eid not in seen_ids:
+                        seen_ids.add(eid)
+                        new_rows.append(row)
+                    elif not eid:
+                        new_rows.append(row)  # Can't dedupe — include anyway
+
+                all_employees.extend(new_rows)
+                logger.info(
+                    "UKG: RICE '%s' page %d → %d rows (%d new, total deduped: %d)",
+                    rice_id, page, len(rows), len(new_rows), len(all_employees),
+                )
+
+                if len(all_employees) >= total or len(rows) < per_page:
+                    break
+                page += 1
+
+        logger.info("UKG: All RICE reports complete — %d total employees", len(all_employees))
+        return all_employees
+
+    def _fetch_via_oauth(self) -> list[dict]:
+        """USER_PASS mode: OAuth2 + paginated employee list."""
         import requests
 
         self.authenticate()

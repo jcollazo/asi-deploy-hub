@@ -7,7 +7,7 @@ El Agent se autentica directo contra UKG/SAP/Oracle. Las columnas las define el 
 ```mermaid
 graph TB
     subgraph Portal["🖥️ Admin Portal (OGP)"]
-        SRC["PUT /source → UKG|SAP|Oracle + API Key"]
+        SRC["PUT /source → UKG|SAP|Oracle<br/>+ connection_type (UKG: API_KEY|USER_PASS)<br/>+ rice_ids (RICE reports)"]
         COL["PUT /columns → filtrar columnas<br/>(opcional — API define las disponibles)"]
     end
 
@@ -215,44 +215,97 @@ graph LR
 
 ## Configuración por Agencia
 
-Cada agencia tiene su propia API key. El Agent se autentica y el API response define las columnas disponibles. El Portal solo filtra.
+Cada agencia tiene su propia API key. El Agent se autentica según el `connection_type`:
+
+- **UKG API_KEY** → RICE reports directos (sin OAuth2)
+- **UKG USER_PASS** → OAuth 2.0 client_credentials
+- **SAP/Oracle** → Siempre OAuth 2.0
+
+Las columnas las define el API response y el Portal solo filtra.
 
 ```mermaid
 graph LR
     subgraph Portal["🖥️ Admin Portal"]
-        P1["OGP → UKG<br/>━━━━━━<br/>API key propia<br/>Filtro: 4 cols"]
+        P1["OGP → UKG<br/>━━━━━━<br/>API_KEY mode<br/>RICE: RPT001,RPT002<br/>Filtro: 4 cols"]
+        P1b["OGP → UKG<br/>━━━━━━<br/>USER_PASS mode<br/>OAuth 2.0 client_credentials<br/>Sin RICE (lista completa)"]
         P2["Hacienda → SAP<br/>━━━━━━<br/>API key propia<br/>Sin filtro (todas)"]
         P3["DTOP → Oracle<br/>━━━━━━<br/>API key propia<br/>Filtro: 10 cols"]
     end
 
     subgraph Transport["transports.py"]
-        T1["UKGTransport<br/>OAuth 2.0<br/>GET employees<br/>┃ 0 columnas hardcodeadas"]
+        T1a["UKGTransport<br/>━━━━━━<br/>API_KEY mode<br/>X-US-API-Key header<br/>GET reports/{rice_id}/data<br/>┃ Merge + dedupe"]
+        T1b["UKGTransport<br/>━━━━━━<br/>USER_PASS mode<br/>OAuth 2.0 → Bearer token<br/>GET /personnel/v1/employees<br/>┃ Paginado"]
         T2["SAPTransport<br/>OAuth 2.0<br/>OData EmpEmployment<br/>┃ 0 columnas hardcodeadas"]
         T3["OracleTransport<br/>OAuth 2.0<br/>GET workers<br/>┃ 0 columnas hardcodeadas"]
     end
 
     subgraph Agents["Agent → SQLite"]
-        A1["OGP → empleados.db<br/>Columnas: API response<br/>Filtradas: 4"]
+        A1a["OGP → empleados.db<br/>Columnas: RICE reports<br/>Deduplicadas<br/>Filtradas: 4"]
         A2["Hacienda → empleados.db<br/>Columnas: API response<br/>Todas"]
         A3["DTOP → empleados.db<br/>Columnas: API response<br/>Filtradas: 10"]
     end
 
-    P1 --> T1 --> A1
+    P1 --> T1a --> A1a
+    P1b --> T1b --> A1a
     P2 --> T2 --> A2
     P3 --> T3 --> A3
 
     style P1 fill:#0D6EFD,color:#fff
+    style P1b fill:#6C757D,color:#fff
     style P2 fill:#0D6EFD,color:#fff
     style P3 fill:#0D6EFD,color:#fff
-    style T1 fill:#12223A,color:#fff
+    style T1a fill:#E5BD44,color:#12223A
+    style T1b fill:#12223A,color:#fff
     style T2 fill:#12223A,color:#fff
     style T3 fill:#12223A,color:#fff
-    style A1 fill:#198754,color:#fff
+    style A1a fill:#198754,color:#fff
     style A2 fill:#198754,color:#fff
     style A3 fill:#198754,color:#fff
 ```
 
 ---
+
+## UKG Dual Mode — API Key vs Username/Password
+
+Cuando `source_type = UKG`, el Portal pregunta si la conexión es por **API Key** (RICE reports) o por **Username/Password** (OAuth2).
+
+```mermaid
+sequenceDiagram
+    participant Admin as Admin Portal
+    participant Hub as FBIB Hub
+    participant Agent as FBIB Agent
+    participant UKG as UKG Pro API
+
+    rect rgb(18, 34, 58)
+    Note over Admin,Hub: Configuración en el Portal
+    Admin->>Hub: PUT /source<br/>source_type=UKG<br/>connection_type=API_KEY<br/>rice_ids=["RPT001","RPT002"]
+    Hub->>Hub: Guarda connection_type + rice_ids
+    end
+
+    rect rgb(229, 189, 68)
+    Note over Agent,UKG: API_KEY mode — RICE Reports (sin OAuth2)
+    Agent->>Hub: GET /api/agent/{key}/config
+    Hub-->>Agent: connection_type=API_KEY<br/>rice_ids=["RPT001","RPT002"]
+    Agent->>UKG: GET /reports/RPT001/data<br/>Header: X-US-API-Key
+    UKG-->>Agent: JSON (report RPT001)
+    Agent->>UKG: GET /reports/RPT002/data<br/>Header: X-US-API-Key
+    UKG-->>Agent: JSON (report RPT002)
+    Agent->>Agent: Merge + deduplicate (employeeId)
+    Agent->>Agent: Filter selected_columns
+    Agent->>Agent: Write empleados.db (chmod 444)
+    end
+
+    rect rgb(108, 117, 125)
+    Note over Agent,UKG: USER_PASS mode — OAuth 2.0
+    Agent->>UKG: POST /auth/oauth/v2/token<br/>client_credentials
+    UKG-->>Agent: access_token
+    Agent->>UKG: GET /personnel/v1/employees<br/>Bearer {token} paginado
+    UKG-->>Agent: JSON (todos los empleados)
+    Agent->>Agent: Filter selected_columns
+    Agent->>Agent: Write empleados.db (chmod 444)
+    end
+```
+
 
 ## Login Flow
 

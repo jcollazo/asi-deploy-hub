@@ -145,8 +145,14 @@ class FBIBAgent:
             from data_replica import DATA_DIR
 
             transport = get_transport(config)
+            conn_type = config.get("connection_type", "USER_PASS")
+            rice_ids = config.get("rice_ids")
+
             logger.info("=" * 60)
             logger.info("Pulling data from %s for agency '%s'...", source_type, self.agency_key)
+            logger.info("  Connection: %s", conn_type)
+            if conn_type == "API_KEY" and rice_ids:
+                logger.info("  RICE IDs: %s", ", ".join(rice_ids))
 
             # Pull from source
             employees = transport.fetch_employees()

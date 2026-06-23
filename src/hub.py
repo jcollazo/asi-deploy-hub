@@ -880,7 +880,8 @@ def agent_get_config(agency_key: str):
 
     cur.execute(
         "SELECT agency_key, display_name, selected_columns, os_type, hostname, "
-        "source_type, api_key, client_id, client_secret, source_url "
+        "source_type, api_key, client_id, client_secret, source_url, "
+        "connection_type, rice_ids "
         "FROM dbo.agencies WHERE agency_key=? AND is_active=1",
         agency_key,
     )
@@ -893,17 +894,22 @@ def agent_get_config(agency_key: str):
     selected = ag[2]
     columns = [c.strip() for c in selected.split(",") if c.strip()] if selected else None
 
+    rice_raw = ag[11] or ""
+    rice_list = [r.strip() for r in rice_raw.split(",") if r.strip()] if rice_raw else None
+
     return {
         "agency_key": ag[0],
         "display_name": ag[1],
         "selected_columns": columns,
         "os_type": ag[3],
         "hostname": ag[4],
-        "source_type": ag[5],        # 'UKG', 'SAP', 'ORACLE', or None
-        "api_key": ag[6],            # X-US-API-Key or OAuth token
-        "client_id": ag[7],          # OAuth 2.0 client_id
-        "client_secret": ag[8],      # OAuth 2.0 client_secret
-        "source_url": ag[9],         # Base API URL
+        "source_type": ag[5],           # 'UKG', 'SAP', 'ORACLE', or None
+        "api_key": ag[6],               # X-US-API-Key or OAuth token
+        "client_id": ag[7],             # OAuth 2.0 client_id
+        "client_secret": ag[8],         # OAuth 2.0 client_secret
+        "source_url": ag[9],            # Base API URL
+        "connection_type": ag[10],      # 'API_KEY' or 'USER_PASS' (UKG only)
+        "rice_ids": rice_list,          # RICE report IDs (UKG API_KEY mode)
     }
 
 
@@ -959,6 +965,8 @@ class SourceConfigRequest(BaseModel):
     client_id: Optional[str] = None    # OAuth 2.0
     client_secret: Optional[str] = None
     source_url: Optional[str] = None   # Base API URL
+    connection_type: Optional[str] = None  # 'API_KEY' or 'USER_PASS' (only for UKG)
+    rice_ids: Optional[list[str]] = None   # RICE report IDs (only for UKG API_KEY mode)
 
 @app.put("/api/admin/agencies/{agency_key}/source")
 def set_agency_source(agency_key: str, req: SourceConfigRequest):
@@ -975,17 +983,21 @@ def set_agency_source(agency_key: str, req: SourceConfigRequest):
         conn.close()
         raise HTTPException(404, f"Agency not found: {agency_key}")
 
+    rice_str = ",".join(req.rice_ids) if req.rice_ids else None
+
     cur.execute(
         "UPDATE dbo.agencies SET source_type=?, api_key=?, client_id=?, client_secret=?, "
-        "source_url=?, updated_at=SYSUTCDATETIME() WHERE agency_key=?",
+        "source_url=?, connection_type=?, rice_ids=?, updated_at=SYSUTCDATETIME() WHERE agency_key=?",
         req.source_type.upper(), req.api_key, req.client_id,
-        req.client_secret, req.source_url, agency_key,
+        req.client_secret, req.source_url, req.connection_type, rice_str, agency_key,
     )
     conn.close()
 
     return {
         "agency_key": agency_key,
         "source_type": req.source_type.upper(),
+        "connection_type": req.connection_type,
+        "rice_ids": req.rice_ids,
         "status": "updated",
     }
 
