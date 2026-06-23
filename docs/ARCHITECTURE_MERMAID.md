@@ -1,35 +1,36 @@
 # ASI Architecture — Mermaid Diagrams
 
-## System Overview (CORREGIDO)
+## System Overview
 
-Cada agencia tiene **UNA** fuente de datos. El Agent jala directo de UKG, SAP, u Oracle según lo configurado en el portal.
+Cada agencia tiene **UNA** fuente. El Agent jala directo de UKG, SAP, u Oracle según lo configurado en el portal.
 
 ```mermaid
 graph TB
     subgraph Portal["🖥️ Admin Portal (OGP)"]
-        CFG["⚙️ Configuración por agencia<br/>Fuente: UKG | SAP | Oracle<br/>Columnas: nombre, puesto...<br/>API Key: us-api-..."]
+        SRC["PUT /source → UKG|SAP|Oracle + API Key"]
+        COL["PUT /columns → nombre, puesto..."]
     end
 
-    subgraph Hub["🌐 ASI Deploy Hub API"]
-        CONFIG["GET /api/agent/{key}/config<br/>→ source_type, api_key, columns"]
+    subgraph Hub["🌐 ASI Deploy Hub API :8900"]
+        CONFIG["GET /api/agent/{key}/config"]
     end
 
     subgraph Agencia1["🏛️ Agencia OGP"]
         AG1["🤖 ASI Agent"]
-        SQL1[("📦 empleados.db<br/>chmod 444<br/>read-only")]
-        APP1["🖥️ App RH OGP"]
+        SQL1[("📦 empleados.db<br/>chmod 444")]
+        APP1["🖥️ App RH"]
     end
 
     subgraph Agencia2["🏛️ Agencia Hacienda"]
         AG2["🤖 ASI Agent"]
         SQL2[("📦 empleados.db<br/>chmod 444")]
-        APP2["🖥️ App RH Hacienda"]
+        APP2["🖥️ App RH"]
     end
 
     subgraph Agencia3["🏛️ Agencia DTOP"]
         AG3["🤖 ASI Agent"]
         SQL3[("📦 empleados.db<br/>chmod 444")]
-        APP3["🖥️ App RH DTOP"]
+        APP3["🖥️ App RH"]
     end
 
     subgraph Sources["Fuentes de Datos"]
@@ -38,28 +39,30 @@ graph TB
         ORACLE["🏢 Oracle HCM<br/>REST API"]
     end
 
-    CFG -->|"guarda config"| CONFIG
-    CONFIG -->|"lee config"| AG1
-    CONFIG -->|"lee config"| AG2
-    CONFIG -->|"lee config"| AG3
+    SRC --> CONFIG
+    COL --> CONFIG
+    CONFIG -->|"source_type: UKG<br/>api_key: ***<br/>columns: [...]"| AG1
+    CONFIG -->|"source_type: SAP<br/>api_key: ***<br/>columns: [...]"| AG2
+    CONFIG -->|"source_type: ORACLE<br/>api_key: ***<br/>columns: [...]"| AG3
 
-    AG1 -->|"OAuth 2.0 + API Key OGP"| UKG
-    AG2 -->|"OAuth 2.0 + API Key Hacienda"| SAP
-    AG3 -->|"OAuth 2.0 + API Key DTOP"| ORACLE
+    AG1 -->|"OAuth 2.0 + pull"| UKG
+    AG2 -->|"OAuth 2.0 + pull"| SAP
+    AG3 -->|"OAuth 2.0 + pull"| ORACLE
 
-    UKG -->|"JSON empleados OGP"| AG1
-    SAP -->|"JSON empleados Hacienda"| AG2
-    ORACLE -->|"JSON empleados DTOP"| AG3
+    UKG -->|"JSON empleados"| AG1
+    SAP -->|"JSON empleados"| AG2
+    ORACLE -->|"JSON empleados"| AG3
 
-    AG1 -->|"escribe SQLite"| SQL1
-    AG2 -->|"escribe SQLite"| SQL2
-    AG3 -->|"escribe SQLite"| SQL3
+    AG1 -->|"filter + SQLite + chmod 444"| SQL1
+    AG2 -->|"filter + SQLite + chmod 444"| SQL2
+    AG3 -->|"filter + SQLite + chmod 444"| SQL3
 
-    SQL1 -->|"SELECT * FROM empleados"| APP1
-    SQL2 -->|"SELECT * FROM empleados"| APP2
-    SQL3 -->|"SELECT * FROM empleados"| APP3
+    SQL1 --> APP1
+    SQL2 --> APP2
+    SQL3 --> APP3
 
-    style CFG fill:#0D6EFD,color:#fff
+    style SRC fill:#0D6EFD,color:#fff
+    style COL fill:#0D6EFD,color:#fff
     style CONFIG fill:#E5BD44,color:#12223A
     style UKG fill:#12223A,color:#fff
     style SAP fill:#12223A,color:#fff
@@ -80,42 +83,42 @@ graph TB
 sequenceDiagram
     participant Portal as 🖥️ Admin Portal
     participant Hub as 🌐 Hub API
-    participant Agent as 🤖 Agent (Agencia)
+    participant Agent as 🤖 Agent
     participant Source as 🏢 UKG/SAP/Oracle
-    participant SQLite as 📦 SQLite Local
+    participant SQLite as 📦 Local
     participant App as 🖥️ App Agencia
 
-    Note over Portal,App: ⚙️ Configuración (una vez)
+    Note over Portal,App: ⚙️ Setup (una vez)
 
-    Portal->>Hub: PUT /api/admin/agencies/ogp/columns
-    Portal->>Hub: PUT /api/admin/agencies/ogp/source<br/>{type: "UKG", api_key: "us-api-..."}
-    Hub-->>Portal: ✅ Config guardada
+    Portal->>Hub: PUT /source → UKG + api_key + OAuth creds
+    Portal->>Hub: PUT /columns → [nombre, puesto, status]
+    Hub-->>Portal: ✅
 
-    Note over Portal,App: 🔄 Cada 60s — Agent poll
+    Note over Portal,App: 🔄 Cada 60s
 
-    Agent->>Hub: GET /api/agent/ogp/config
-    Hub-->>Agent: {source: "UKG", api_key: "***", columns: [...]}
+    Agent->>Hub: GET /api/agent/{key}/config
+    Hub-->>Agent: source_type, api_key, client_id, client_secret, columns
 
-    Note over Portal,App: 🌅 2:00 AM — Pull de datos
+    alt source_type configurado
+        Agent->>Source: OAuth 2.0 → access_token
+        Source-->>Agent: token ✅
 
-    Agent->>Source: OAuth 2.0 token
-    Source-->>Agent: access_token
+        Agent->>Source: GET employees (paginated)
+        Source-->>Agent: JSON rows
 
-    Agent->>Source: GET /personnel/v1/employees
-    Source-->>Agent: JSON (3,300 empleados OGP)
+        Agent->>Agent: Filtrar columnas seleccionadas
+        Agent->>SQLite: INSERT batch 1000
+        Agent->>SQLite: chmod 444 + atomic replace
+        Agent->>Hub: Heartbeat (rows pulled: N)
+    else sin source
+        Agent->>Agent: skip
+    end
 
-    Agent->>Agent: Filtrar columnas configuradas
-    Agent->>Agent: AES-256-GCM encrypt SSN
-    Agent->>SQLite: Escribir empleados.db
-    Agent->>SQLite: chmod 444
+    Note over Portal,App: 🌅 8:00 AM
 
-    Agent->>Hub: POST heartbeat (rows synced: 3300)
-
-    Note over Portal,App: 🌅 8:00 AM — Agencia trabaja
-
-    App->>SQLite: sqlite3.connect("file:...?mode=ro")
+    App->>SQLite: sqlite3 "file:...?mode=ro"
     App->>SQLite: SELECT * FROM empleados
-    SQLite-->>App: 3,300 rows → instantáneo
+    SQLite-->>App: rows → instantáneo
 ```
 
 ---
@@ -125,64 +128,156 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
     [*] --> POLLING: Agent arranca
-    POLLING --> FETCH_CONFIG: Cada 60s
-    FETCH_CONFIG --> CHECK_SOURCE: GET /api/agent/{key}/config
-    CHECK_SOURCE --> PULL_DATA: source_type configurado
-    CHECK_SOURCE --> POLLING: sin source configurado
-    PULL_DATA --> AUTH: OAuth 2.0
-    AUTH --> FETCH: GET employees (paginated)
-    FETCH --> FILTER: Filtrar columnas
-    FILTER --> ENCRYPT: AES-256-GCM SSN
-    ENCRYPT --> WRITE_SQLITE: INSERT batch 1000
-    WRITE_SQLITE --> CHMOD: chmod 444
-    CHMOD --> REPORT: Heartbeat al Hub
-    REPORT --> POLLING: Esperar 60s
 
-    note right of PULL_DATA: UKG → REST API<br/>SAP → OData<br/>Oracle → REST API
-    note right of WRITE_SQLITE: NUNCA INSERT/UPDATE<br/>en DB externa.<br/>Solo SQLite local.
+    state POLLING {
+        [*] --> CHECK_DEPLOY: ¿pending deployments?
+        CHECK_DEPLOY --> DEPLOY_SOFTWARE: sí
+        CHECK_DEPLOY --> CHECK_CONFIG: no
+        CHECK_CONFIG --> PULL_DATA: source_type != null
+        CHECK_CONFIG --> HEARTBEAT: source_type == null
+    }
+
+    DEPLOY_SOFTWARE --> HEARTBEAT
+    PULL_DATA --> AUTH: transports.get_transport()
+    AUTH --> FETCH: OAuth 2.0
+    FETCH --> FILTER: paginated GET
+    FILTER --> WRITE: _filter_columns()
+    WRITE --> CHMOD: SQLite batch 1000
+    CHMOD --> HEARTBEAT: chmod 444 + atomic replace
+    HEARTBEAT --> POLLING: sleep 60s
+
+    note right of PULL_DATA: UKG → UKGTransport<br/>SAP → SAPTransport<br/>Oracle → OracleTransport
+    note right of WRITE: SOLO SQLite local.<br/>NUNCA INSERT/UPDATE<br/>en DB externa.
 ```
 
 ---
 
-## Configuración por Agencia (Portal Admin)
+## Portal Admin — Endpoints
+
+```mermaid
+graph LR
+    subgraph Portal["🖥️ Admin Portal (React)"]
+        LOGIN["🔐 Login<br/>Boomi-style"]
+        DASH["📊 Dashboard"]
+        AGENCIES["🏛️ Agencias"]
+        DEPLOY["🚀 Deployments"]
+    end
+
+    subgraph API["🌐 Hub API (FastAPI :8900)"]
+        E1["PUT /source"]
+        E2["PUT /columns"]
+        E3["GET /config"]
+        E4["GET /pending"]
+        E5["POST /heartbeat"]
+    end
+
+    subgraph DB[("SQL Server")]
+        AG[("agencies")]
+        REL[("releases")]
+        DEP[("deployments")]
+    end
+
+    LOGIN --> DASH
+    DASH --> AGENCIES
+    DASH --> DEPLOY
+
+    AGENCIES --> E1
+    AGENCIES --> E2
+    E1 --> AG
+    E2 --> AG
+
+    E4 --> DEP
+    E4 --> REL
+
+    style LOGIN fill:#0D6EFD,color:#fff
+    style DASH fill:#0D6EFD,color:#fff
+    style AGENCIES fill:#12223A,color:#fff
+    style DEPLOY fill:#12223A,color:#fff
+    style E1 fill:#E5BD44,color:#12223A
+    style E2 fill:#E5BD44,color:#12223A
+    style E3 fill:#E5BD44,color:#12223A
+    style AG fill:#198754,color:#fff
+```
+
+---
+
+## Configuración por Agencia
 
 ```mermaid
 graph LR
     subgraph Portal["🖥️ Admin Portal"]
-        P1["Agencia OGP<br/>━━━━━━━━━━<br/>Fuente: UKG ✓<br/>API Key: us-api-ogp-...<br/>Columnas: 6/22"]
-        P2["Agencia Hacienda<br/>━━━━━━━━━━<br/>Fuente: SAP ✓<br/>API Key: sap-api-hac-...<br/>Columnas: 22/22"]
-        P3["Agencia DTOP<br/>━━━━━━━━━━<br/>Fuente: Oracle ✓<br/>API Key: ora-api-dtop-...<br/>Columnas: 10/22"]
+        P1["OGP<br/>━━━━━━<br/>UKG ✓<br/>6/22 cols"]
+        P2["Hacienda<br/>━━━━━━<br/>SAP ✓<br/>22/22 cols"]
+        P3["DTOP<br/>━━━━━━<br/>Oracle ✓<br/>10/22 cols"]
     end
 
-    subgraph Agents["Agents"]
-        A1["🤖 Agent OGP"]
-        A2["🤖 Agent Hacienda"]
-        A3["🤖 Agent DTOP"]
+    subgraph Transport["transports.py"]
+        T1["UKGTransport<br/>OAuth 2.0<br/>GET employees"]
+        T2["SAPTransport<br/>OAuth 2.0<br/>OData EmpEmployment"]
+        T3["OracleTransport<br/>OAuth 2.0<br/>GET workers"]
     end
 
-    subgraph Sources["Fuentes"]
-        UKG["🏢 UKG Pro"]
-        SAP["🏢 SAP"]
-        ORACLE["🏢 Oracle HCM"]
+    subgraph Agents["Agent"]
+        A1["OGP → empleados.db"]
+        A2["Hacienda → empleados.db"]
+        A3["DTOP → empleados.db"]
     end
 
-    P1 -->|config| A1
-    P2 -->|config| A2
-    P3 -->|config| A3
-
-    A1 -->|pull| UKG
-    A2 -->|pull| SAP
-    A3 -->|pull| ORACLE
+    P1 --> T1 --> A1
+    P2 --> T2 --> A2
+    P3 --> T3 --> A3
 
     style P1 fill:#0D6EFD,color:#fff
     style P2 fill:#0D6EFD,color:#fff
     style P3 fill:#0D6EFD,color:#fff
-    style A1 fill:#16335C,color:#fff
-    style A2 fill:#16335C,color:#fff
-    style A3 fill:#16335C,color:#fff
-    style UKG fill:#12223A,color:#fff
-    style SAP fill:#12223A,color:#fff
-    style ORACLE fill:#12223A,color:#fff
+    style T1 fill:#12223A,color:#fff
+    style T2 fill:#12223A,color:#fff
+    style T3 fill:#12223A,color:#fff
+    style A1 fill:#198754,color:#fff
+    style A2 fill:#198754,color:#fff
+    style A3 fill:#198754,color:#fff
+```
+
+---
+
+## Login Flow
+
+```mermaid
+sequenceDiagram
+    participant U as Usuario
+    participant L as Login Page
+    participant A as App.jsx
+    participant S as sessionStorage
+
+    U->>L: Abre portal
+    L-->>U: Split-screen (Boomi-style)
+
+    U->>L: Usuario + Contraseña
+    L->>A: onLogin({username})
+    A->>S: Guarda sesión
+    A-->>U: Dashboard + Sidebar
+
+    U->>A: Cerrar sesión
+    A->>S: Borra sesión
+    A-->>U: Login Page
+```
+
+---
+
+## Agent Deployment Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING: OGP crea deployment
+    PENDING --> DOWNLOADING: Agent detecta
+    DOWNLOADING --> VERIFYING: Download OK
+    VERIFYING --> INSTALLING: SHA-256 ✅
+    VERIFYING --> FAILED: SHA-256 ❌
+    INSTALLING --> SUCCESS: Deploy OK
+    INSTALLING --> FAILED: Error
+
+    SUCCESS --> [*]: Report SUCCESS
+    FAILED --> [*]: Report FAILED
 ```
 
 ---
@@ -211,144 +306,4 @@ graph TB
 
     style B5 fill:#DC3545,color:#fff
     style A4 fill:#198754,color:#fff
-```
-
----
-
-## Data Flow — Diario
-
-```mermaid
-sequenceDiagram
-    participant UKG as UKG Pro Cloud
-    participant Hub as PR Integration Hub
-    participant SQL as SQL Server Central
-    participant ASI as ASI Deploy Hub
-    participant Agent as Agent (Agencia)
-    participant App as App Agencia
-
-    Note over UKG,App: 🌅 1:00 AM — ETL Diario
-
-    UKG->>Hub: GET /personnel/v1/employees
-    Hub->>Hub: Validar + AES-256-GCM encrypt SSN
-    Hub->>SQL: MERGE atómico (staging → target)
-    SQL-->>Hub: ✅ 500K rows merged
-
-    Note over UKG,App: 🌅 2:00 AM — Generar Réplicas
-
-    ASI->>SQL: SELECT * WHERE agency=X (×19)
-    SQL-->>ASI: 19 result sets
-    ASI->>ASI: Build SQLite + SHA-256 + chmod 444
-    ASI-->>Agent: DATA deployment creado
-
-    Note over UKG,App: 🌅 3:00 AM — Agents descargan
-
-    Agent->>ASI: GET /api/agent/artifact/{id}
-    ASI-->>Agent: Stream empleados.db
-    Agent->>Agent: SHA-256 verify + chmod 444
-    Agent-->>ASI: Report SUCCESS
-
-    Note over UKG,App: 🌅 8:00 AM — Agencias abren
-
-    App->>App: sqlite3.connect("file:empleados.db?mode=ro")
-    App->>App: SELECT * FROM empleados → instantáneo
-```
-
----
-
-## Login Flow
-
-```mermaid
-sequenceDiagram
-    participant U as Usuario
-    participant L as Login Page
-    participant A as App.jsx
-    participant S as sessionStorage
-
-    U->>L: Abre http://localhost:5173
-    L-->>U: Split-screen login (Boomi-style)
-
-    U->>L: Usuario + Contraseña
-    L->>A: onLogin({username})
-    A->>S: Guarda sesión
-    A-->>U: Admin Portal (sidebar + dashboard)
-
-    U->>A: Click "Cerrar sesión"
-    A->>S: Borra sesión
-    A-->>U: Login Page
-```
-
----
-
-## Column Selection
-
-```mermaid
-graph LR
-    subgraph Admin["🖥️ Admin Portal"]
-        CFG["PUT /api/admin/agencies/ogp/columns<br/>{columns: ['nombre','puesto','status']}"]
-    end
-
-    subgraph Hub["ASI Deploy Hub"]
-        DB[("dbo.agencies<br/>selected_columns")]
-        GEN["generate-replicas"]
-    end
-
-    subgraph Agency["Agencia OGP"]
-        SQLite[("empleados.db<br/>3 columnas · 4 MB")]
-    end
-
-    CFG -->|"guarda selección"| DB
-    DB -->|"lee columnas"| GEN
-    GEN -->|"SELECT nombre,puesto,status<br/>WHERE agency='OGP'"| SQLite
-
-    style CFG fill:#0D6EFD,color:#fff
-    style DB fill:#12223A,color:#fff
-    style GEN fill:#E5BD44,color:#12223A
-    style SQLite fill:#198754,color:#fff
-```
-
----
-
-## Agent Deployment Lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> PENDING: OGP crea deployment
-    PENDING --> DOWNLOADING: Agent detecta
-    DOWNLOADING --> VERIFYING: Download completo
-    VERIFYING --> INSTALLING: SHA-256 ✅
-    VERIFYING --> FAILED: SHA-256 ❌
-    INSTALLING --> SUCCESS: Deploy OK
-    INSTALLING --> FAILED: Error en deploy
-
-    SUCCESS --> [*]: Report al Hub
-    FAILED --> [*]: Report al Hub (con error)
-```
-
----
-
-## Comparativa Boomi vs ASI
-
-```mermaid
-graph TB
-    subgraph Boomi["❌ Boomi — ~$200K/año"]
-        B1["Boomi Integration<br/>$17K conn"]
-        B2["Boomi Data Hub<br/>$20K-$40K"]
-        B3["Atoms ×19<br/>$125K/año"]
-        B4["DB Connectors<br/>$5K-$17K c/u"]
-        B5["🔴 INSERT/UPDATE<br/>en DB agencia"]
-    end
-
-    subgraph ASI["✅ ASI — ~$240/año"]
-        A1["PR Integration Hub<br/>$0"]
-        A2["ASI Deploy Hub<br/>$0"]
-        A3["Agents ×19<br/>$0"]
-        A4["SQLite replicas<br/>$0"]
-        A5["🟢 chmod 444<br/>read-only"]
-    end
-
-    B1 --> B2 --> B3 --> B4 --> B5
-    A1 --> A2 --> A3 --> A4 --> A5
-
-    style B5 fill:#DC3545,color:#fff
-    style A5 fill:#198754,color:#fff
 ```
