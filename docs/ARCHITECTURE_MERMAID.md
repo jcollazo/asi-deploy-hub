@@ -2,17 +2,17 @@
 
 ## System Overview
 
-Cada agencia tiene **UNA** fuente. El Agent jala directo de UKG, SAP, u Oracle según lo configurado en el portal.
+El Agent se autentica directo contra UKG/SAP/Oracle. Las columnas las define el API response de la agencia — el Portal solo configura qué columnas **filtrar** al final.
 
 ```mermaid
 graph TB
     subgraph Portal["🖥️ Admin Portal (OGP)"]
         SRC["PUT /source → UKG|SAP|Oracle + API Key"]
-        COL["PUT /columns → nombre, puesto..."]
+        COL["PUT /columns → filtrar columnas<br/>(opcional — API define las disponibles)"]
     end
 
     subgraph Hub["🌐 ASI Deploy Hub API :8900"]
-        CONFIG["GET /api/agent/{key}/config"]
+        CONFIG["GET /api/agent/{key}/config<br/>→ source_type, creds, selected_columns"]
     end
 
     subgraph Agencia1["🏛️ Agencia OGP"]
@@ -34,24 +34,24 @@ graph TB
     end
 
     subgraph Sources["Fuentes de Datos"]
-        UKG["🏢 UKG Pro<br/>REST API"]
-        SAP["🏢 SAP SuccessFactors<br/>OData"]
-        ORACLE["🏢 Oracle HCM<br/>REST API"]
+        UKG["🏢 UKG Pro<br/>REST API<br/>┃ columnas dinámicas"]
+        SAP["🏢 SAP SuccessFactors<br/>OData<br/>┃ columnas dinámicas"]
+        ORACLE["🏢 Oracle HCM<br/>REST API<br/>┃ columnas dinámicas"]
     end
 
     SRC --> CONFIG
     COL --> CONFIG
-    CONFIG -->|"source_type: UKG<br/>api_key: ***<br/>columns: [...]"| AG1
-    CONFIG -->|"source_type: SAP<br/>api_key: ***<br/>columns: [...]"| AG2
-    CONFIG -->|"source_type: ORACLE<br/>api_key: ***<br/>columns: [...]"| AG3
+    CONFIG -->|"source: UKG + creds<br/>selected_columns (filtro)"| AG1
+    CONFIG -->|"source: SAP + creds<br/>selected_columns (filtro)"| AG2
+    CONFIG -->|"source: ORACLE + creds<br/>selected_columns (filtro)"| AG3
 
-    AG1 -->|"OAuth 2.0 + pull"| UKG
-    AG2 -->|"OAuth 2.0 + pull"| SAP
-    AG3 -->|"OAuth 2.0 + pull"| ORACLE
+    AG1 -->|"OAuth 2.0 → pull"| UKG
+    AG2 -->|"OAuth 2.0 → pull"| SAP
+    AG3 -->|"OAuth 2.0 → pull"| ORACLE
 
-    UKG -->|"JSON empleados"| AG1
-    SAP -->|"JSON empleados"| AG2
-    ORACLE -->|"JSON empleados"| AG3
+    UKG -->|"JSON (todas las columnas)"| AG1
+    SAP -->|"JSON (todas las columnas)"| AG2
+    ORACLE -->|"JSON (todas las columnas)"| AG3
 
     AG1 -->|"filter + SQLite + chmod 444"| SQL1
     AG2 -->|"filter + SQLite + chmod 444"| SQL2
@@ -79,6 +79,8 @@ graph TB
 
 ## Data Flow — Diario (por agencia)
 
+El Agent no hardcodea columnas. El API response de UKG/SAP/Oracle **define** qué columnas existen. El `selected_columns` del Portal solo filtra al final.
+
 ```mermaid
 sequenceDiagram
     participant Portal as 🖥️ Admin Portal
@@ -91,25 +93,33 @@ sequenceDiagram
     Note over Portal,App: ⚙️ Setup (una vez)
 
     Portal->>Hub: PUT /source → UKG + api_key + OAuth creds
-    Portal->>Hub: PUT /columns → [nombre, puesto, status]
+    Portal->>Hub: PUT /columns → [nombre, puesto, status] (filtro opcional)
     Hub-->>Portal: ✅
 
     Note over Portal,App: 🔄 Cada 60s
 
     Agent->>Hub: GET /api/agent/{key}/config
-    Hub-->>Agent: source_type, api_key, client_id, client_secret, columns
+    Hub-->>Agent: source_type, creds, selected_columns
 
     alt source_type configurado
         Agent->>Source: OAuth 2.0 → access_token
         Source-->>Agent: token ✅
 
-        Agent->>Source: GET employees (paginated)
-        Source-->>Agent: JSON rows
+        Agent->>Source: GET employees (sin $select/expand hardcoded)
+        Source-->>Agent: JSON — TODAS las columnas del API
 
-        Agent->>Agent: Filtrar columnas seleccionadas
+        Note over Agent: Columnas = keys del JSON response.<br/>Cero hardcodeo. El API manda.
+
+        alt selected_columns configurado
+            Agent->>Agent: _filter_columns(rows, selected)
+            Note over Agent: Solo conserva las columnas<br/>que la agencia eligió
+        else sin filtro
+            Agent->>Agent: Conserva TODAS las columnas
+        end
+
         Agent->>SQLite: INSERT batch 1000
         Agent->>SQLite: chmod 444 + atomic replace
-        Agent->>Hub: Heartbeat (rows pulled: N)
+        Agent->>Hub: Heartbeat (rows pulled: N, cols: M)
     else sin source
         Agent->>Agent: skip
     end
@@ -140,13 +150,15 @@ stateDiagram-v2
     DEPLOY_SOFTWARE --> HEARTBEAT
     PULL_DATA --> AUTH: transports.get_transport()
     AUTH --> FETCH: OAuth 2.0
-    FETCH --> FILTER: paginated GET
-    FILTER --> WRITE: _filter_columns()
-    WRITE --> CHMOD: SQLite batch 1000
-    CHMOD --> HEARTBEAT: chmod 444 + atomic replace
-    HEARTBEAT --> POLLING: sleep 60s
+    FETCH --> DISCOVER: API response → columnas dinámicas
+    DISCOVER --> FILTER: _filter_columns() solo si selected_columns
+    FILTER --> WRITE: SQLite batch 1000
+    WRITE --> CHMOD: chmod 444 + atomic replace
+    CHMOD --> HEARTBEAT: sleep 60s
+    HEARTBEAT --> POLLING
 
-    note right of PULL_DATA: UKG → UKGTransport<br/>SAP → SAPTransport<br/>Oracle → OracleTransport
+    note right of FETCH: UKG → /personnel/v1/employees<br/>SAP → /odata/v2/EmpEmployment<br/>Oracle → /hcmRestApi/.../workers<br/><br/>SIN $select NI expand hardcoded
+    note right of DISCOVER: Columnas = keys del JSON.<br/>El API de la agencia<br/>define las columnas.
     note right of WRITE: SOLO SQLite local.<br/>NUNCA INSERT/UPDATE<br/>en DB externa.
 ```
 
@@ -164,15 +176,15 @@ graph LR
     end
 
     subgraph API["🌐 Hub API (FastAPI :8900)"]
-        E1["PUT /source"]
-        E2["PUT /columns"]
-        E3["GET /config"]
+        E1["PUT /source<br/>UKG|SAP|Oracle"]
+        E2["PUT /columns<br/>filtro (API define disponibles)"]
+        E3["GET /config<br/>creds + selected_columns"]
         E4["GET /pending"]
         E5["POST /heartbeat"]
     end
 
     subgraph DB[("SQL Server")]
-        AG[("agencies")]
+        AG[("agencies<br/>source_type, creds,<br/>selected_columns")]
         REL[("releases")]
         DEP[("deployments")]
     end
@@ -203,24 +215,26 @@ graph LR
 
 ## Configuración por Agencia
 
+Cada agencia tiene su propia API key. El Agent se autentica y el API response define las columnas disponibles. El Portal solo filtra.
+
 ```mermaid
 graph LR
     subgraph Portal["🖥️ Admin Portal"]
-        P1["OGP<br/>━━━━━━<br/>UKG ✓<br/>6/22 cols"]
-        P2["Hacienda<br/>━━━━━━<br/>SAP ✓<br/>22/22 cols"]
-        P3["DTOP<br/>━━━━━━<br/>Oracle ✓<br/>10/22 cols"]
+        P1["OGP → UKG<br/>━━━━━━<br/>API key propia<br/>Filtro: 4 cols"]
+        P2["Hacienda → SAP<br/>━━━━━━<br/>API key propia<br/>Sin filtro (todas)"]
+        P3["DTOP → Oracle<br/>━━━━━━<br/>API key propia<br/>Filtro: 10 cols"]
     end
 
     subgraph Transport["transports.py"]
-        T1["UKGTransport<br/>OAuth 2.0<br/>GET employees"]
-        T2["SAPTransport<br/>OAuth 2.0<br/>OData EmpEmployment"]
-        T3["OracleTransport<br/>OAuth 2.0<br/>GET workers"]
+        T1["UKGTransport<br/>OAuth 2.0<br/>GET employees<br/>┃ 0 columnas hardcodeadas"]
+        T2["SAPTransport<br/>OAuth 2.0<br/>OData EmpEmployment<br/>┃ 0 columnas hardcodeadas"]
+        T3["OracleTransport<br/>OAuth 2.0<br/>GET workers<br/>┃ 0 columnas hardcodeadas"]
     end
 
-    subgraph Agents["Agent"]
-        A1["OGP → empleados.db"]
-        A2["Hacienda → empleados.db"]
-        A3["DTOP → empleados.db"]
+    subgraph Agents["Agent → SQLite"]
+        A1["OGP → empleados.db<br/>Columnas: API response<br/>Filtradas: 4"]
+        A2["Hacienda → empleados.db<br/>Columnas: API response<br/>Todas"]
+        A3["DTOP → empleados.db<br/>Columnas: API response<br/>Filtradas: 10"]
     end
 
     P1 --> T1 --> A1
@@ -296,7 +310,7 @@ graph TB
 
     subgraph ASI["✅ ASI — ~$240/año"]
         A1["Admin Portal<br/>Config por agencia"]
-        A2["Agent ×19<br/>Pull directo de fuente"]
+        A2["Agent ×19<br/>Pull directo de UKG/SAP/Oracle<br/>Columnas dinámicas del API"]
         A3["SQLite local<br/>chmod 444"]
         A4["🟢 READ-ONLY<br/>Cero escritura"]
     end
