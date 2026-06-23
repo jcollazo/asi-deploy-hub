@@ -4,7 +4,7 @@
 -- Central registry for releases, agencies, and deployments.
 -- ============================================================
 
--- ─── Agencies (destino del deployment) ───────────────────────
+-- ─── Agencies (destino del deployment + data source config) ───
 IF OBJECT_ID('dbo.agencies', 'U') IS NULL
 CREATE TABLE dbo.agencies (
     id              INT IDENTITY(1,1) PRIMARY KEY,
@@ -15,6 +15,11 @@ CREATE TABLE dbo.agencies (
     agent_version   NVARCHAR(20),                   -- currently installed agent version
     last_seen_at    DATETIME2,
     is_active       BIT DEFAULT 1,
+    source_type     NVARCHAR(20),                   -- 'UKG', 'SAP', 'ORACLE' | NULL = no data source
+    api_key         NVARCHAR(500),                  -- Encrypted: X-US-API-Key or OAuth token
+    client_id       NVARCHAR(500),                  -- Encrypted: OAuth 2.0 client_id
+    client_secret   NVARCHAR(500),                  -- Encrypted: OAuth 2.0 client_secret
+    source_url      NVARCHAR(500),                  -- Base URL: https://api.ultipro.com | https://sap.pr.gov
     selected_columns NVARCHAR(MAX),                 -- Comma-separated: 'eeid,first_name,last_name' | NULL=ALL
     metadata_json   NVARCHAR(MAX),                  -- JSON: tags, contact, notes
     created_at      DATETIME2 DEFAULT SYSUTCDATETIME(),
@@ -22,9 +27,19 @@ CREATE TABLE dbo.agencies (
 );
 GO
 
--- Migration: add selected_columns if table already exists
+-- Migrations: add columns if table already exists
 IF COL_LENGTH('dbo.agencies', 'selected_columns') IS NULL
     ALTER TABLE dbo.agencies ADD selected_columns NVARCHAR(MAX);
+IF COL_LENGTH('dbo.agencies', 'source_type') IS NULL
+    ALTER TABLE dbo.agencies ADD source_type NVARCHAR(20);
+IF COL_LENGTH('dbo.agencies', 'api_key') IS NULL
+    ALTER TABLE dbo.agencies ADD api_key NVARCHAR(500);
+IF COL_LENGTH('dbo.agencies', 'client_id') IS NULL
+    ALTER TABLE dbo.agencies ADD client_id NVARCHAR(500);
+IF COL_LENGTH('dbo.agencies', 'client_secret') IS NULL
+    ALTER TABLE dbo.agencies ADD client_secret NVARCHAR(500);
+IF COL_LENGTH('dbo.agencies', 'source_url') IS NULL
+    ALTER TABLE dbo.agencies ADD source_url NVARCHAR(500);
 GO
 
 -- ─── Applications (software projects to deploy) ─────────────

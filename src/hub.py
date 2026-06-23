@@ -879,7 +879,8 @@ def agent_get_config(agency_key: str):
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT agency_key, display_name, selected_columns, os_type, hostname "
+        "SELECT agency_key, display_name, selected_columns, os_type, hostname, "
+        "source_type, api_key, client_id, client_secret, source_url "
         "FROM dbo.agencies WHERE agency_key=? AND is_active=1",
         agency_key,
     )
@@ -895,9 +896,14 @@ def agent_get_config(agency_key: str):
     return {
         "agency_key": ag[0],
         "display_name": ag[1],
-        "selected_columns": columns,  # null = ALL, [] = ALL, ['eeid','last_name'] = filtered
+        "selected_columns": columns,
         "os_type": ag[3],
         "hostname": ag[4],
+        "source_type": ag[5],        # 'UKG', 'SAP', 'ORACLE', or None
+        "api_key": ag[6],            # X-US-API-Key or OAuth token
+        "client_id": ag[7],          # OAuth 2.0 client_id
+        "client_secret": ag[8],      # OAuth 2.0 client_secret
+        "source_url": ag[9],         # Base API URL
     }
 
 
@@ -943,6 +949,43 @@ def set_agency_columns(agency_key: str, req: ColumnSelectionRequest):
     return {
         "agency_key": agency_key,
         "selected_columns": req.columns if req.columns else "ALL",
+        "status": "updated",
+    }
+
+
+class SourceConfigRequest(BaseModel):
+    source_type: str        # 'UKG', 'SAP', 'ORACLE'
+    api_key: str            # X-US-API-Key or tenant key
+    client_id: Optional[str] = None    # OAuth 2.0
+    client_secret: Optional[str] = None
+    source_url: Optional[str] = None   # Base API URL
+
+@app.put("/api/admin/agencies/{agency_key}/source")
+def set_agency_source(agency_key: str, req: SourceConfigRequest):
+    """Configure which data source an agency's Agent pulls from."""
+    valid_sources = {"UKG", "SAP", "ORACLE"}
+    if req.source_type.upper() not in valid_sources:
+        raise HTTPException(400, f"Invalid source_type: {req.source_type}. Use: {valid_sources}")
+
+    conn = pyodbc.connect(DB_CONN, autocommit=True)
+    cur = conn.cursor()
+
+    cur.execute("SELECT id FROM dbo.agencies WHERE agency_key=?", agency_key)
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(404, f"Agency not found: {agency_key}")
+
+    cur.execute(
+        "UPDATE dbo.agencies SET source_type=?, api_key=?, client_id=?, client_secret=?, "
+        "source_url=?, updated_at=SYSUTCDATETIME() WHERE agency_key=?",
+        req.source_type.upper(), req.api_key, req.client_id,
+        req.client_secret, req.source_url, agency_key,
+    )
+    conn.close()
+
+    return {
+        "agency_key": agency_key,
+        "source_type": req.source_type.upper(),
         "status": "updated",
     }
 

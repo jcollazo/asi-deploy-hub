@@ -75,6 +75,9 @@ class ASIAgent:
                     for deploy in pending:
                         self._process_deployment(deploy)
 
+                # ─── Data Pull (direct from source) ─────────────────
+                self._pull_data()
+
                 self._send_heartbeat()
             except requests.RequestException as e:
                 logger.error("Network error contacting hub: %s", e)
@@ -110,6 +113,112 @@ class ASIAgent:
             logger.warning("  pyodbc not installed — skipping DB verification")
         except Exception as e:
             logger.error("  DB connection FAILED: %s", e)
+
+    # ─── Data Pull (direct from source) ──────────────────────────
+    def _fetch_config(self) -> dict | None:
+        """Fetch agency configuration from Hub."""
+        try:
+            resp = requests.get(
+                f"{self.hub_url}/api/agent/{self.agency_key}/config",
+                timeout=30,
+            )
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            logger.error("Failed to fetch config: %s", e)
+            return None
+
+    def _pull_data(self):
+        """Pull employee data directly from the configured source (UKG/SAP/Oracle)."""
+        config = self._fetch_config()
+        if not config:
+            return
+
+        source_type = config.get("source_type")
+        if not source_type:
+            return  # No data source configured
+
+        try:
+            from transports import get_transport
+            from data_replica import DATA_DIR
+
+            transport = get_transport(config)
+            logger.info("=" * 60)
+            logger.info("Pulling data from %s for agency '%s'...", source_type, self.agency_key)
+
+            # Pull from source
+            employees = transport.fetch_employees()
+            logger.info("Pulled %d employees from %s", len(employees), source_type)
+
+            if not employees:
+                return
+
+            # Filter columns if configured
+            selected_cols = config.get("selected_columns")
+            if selected_cols:
+                employees = self._filter_columns(employees, selected_cols)
+
+            # Write SQLite
+            import sqlite3
+            db_path = DATA_DIR / "empleados.db"
+            tmp_path = DATA_DIR / ".empleados.db.tmp"
+
+            # Get columns from first row
+            col_names = list(employees[0].keys())
+
+            conn = sqlite3.connect(str(tmp_path))
+            conn.execute("PRAGMA journal_mode=WAL")
+
+            col_defs = ", ".join([f"[{c}] TEXT" for c in col_names])
+            conn.execute(f"CREATE TABLE empleados ({col_defs})")
+
+            # Insert in batches
+            placeholders = ", ".join(["?"] * len(col_names))
+            col_list = ", ".join([f"[{c}]" for c in col_names])
+            batch_size = 1000
+            for i in range(0, len(employees), batch_size):
+                batch = employees[i:i + batch_size]
+                values = [[row.get(c, "") for c in col_names] for row in batch]
+                conn.executemany(
+                    f"INSERT INTO empleados ({col_list}) VALUES ({placeholders})", values
+                )
+
+            # Metadata
+            conn.execute("CREATE TABLE _asi_meta (key TEXT PRIMARY KEY, value TEXT)")
+            conn.executemany(
+                "INSERT INTO _asi_meta VALUES (?, ?)",
+                [
+                    ("agency_key", self.agency_key),
+                    ("source_type", source_type),
+                    ("total_rows", str(len(employees))),
+                    ("columns", ",".join(col_names)),
+                    ("pulled_at", datetime.utcnow().isoformat() + "Z"),
+                    ("access", "READ-ONLY — SELECT only. No INSERT/UPDATE/DELETE."),
+                ],
+            )
+            conn.commit()
+            conn.close()
+
+            # Atomic replace + chmod 444
+            tmp_path.chmod(0o444)
+            os.replace(tmp_path, db_path)
+
+            logger.info("SQLite written: %s (%d rows, chmod 444)", db_path, len(employees))
+
+        except ImportError as e:
+            logger.warning("Module not available: %s — skipping data pull", e)
+        except Exception as e:
+            logger.exception("Data pull FAILED from %s: %s", source_type, e)
+
+    def _filter_columns(self, rows: list[dict], selected: list[str]) -> list[dict]:
+        """Keep only selected columns from each row."""
+        selected_lower = {c.lower() for c in selected}
+        return [
+            {k: v for k, v in row.items() if k.lower() in selected_lower}
+            for row in rows
+        ]
 
     # ─── Hub Communication ─────────────────────────────────────
     def _check_pending(self) -> list[dict]:
